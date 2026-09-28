@@ -47,8 +47,6 @@ Durante o cálculo, uma barra mostra o avanço por tentativa e por peça. O proc
 - A busca encerra quando novas tentativas deixam de melhorar a solução ou quando atinge o menor número de chapas matematicamente possível pela área.
 - Antes de liberar o resultado, todas as posições são validadas novamente contra os contornos originais completos e a folga configurada.
 
-No caso de validação `LSYD0071`, as 28 peças foram organizadas em 2 chapas de 1850 × 2750 mm, com folgas de 14 mm entre peças e 5 mm nas bordas. Com 24 tentativas configuradas, a parada ótima ocorreu após 3 tentativas.
-
 No modo **Livre**, os ângulos candidatos são calculados a partir das arestas do contorno de cada peça. Rotações geometricamente equivalentes são eliminadas para manter a otimização rápida.
 
 ## Limitações desta versão
