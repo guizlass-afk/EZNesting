@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Testes EZ Nester</title></head>
+<body>
+  <h1 id="status">EXECUTANDO</h1>
+  <pre id="details"></pre>
+  <iframe id="app" src="../index.html" style="position:absolute;width:1px;height:1px;opacity:0"></iframe>
+  <script>
+    const rectangle = `0
+SECTION
+2
+ENTITIES
+0
+LWPOLYLINE
+90
+4
+70
+1
+10
+0
+20
+0
+10
+500
+20
+0
+10
+500
+20
+300
+10
+0
+20
+300
+0
+CIRCLE
+10
+250
+20
+150
+40
+50
+0
+ENDSEC
+0
+EOF`;
+    const bracket = `0
+SECTION
+2
+ENTITIES
+0
+LWPOLYLINE
+90
+6
+70
+1
+10
+0
+20
+0
+10
+420
+20
+0
+10
+420
+20
+120
+10
+140
+20
+120
+10
+140
+20
+380
+10
+0
+20
+380
+0
+ENDSEC
+0
+EOF`;
+    document.getElementById('app').addEventListener('load', async () => {
+      const log = [];
+      try {
+        const core = document.getElementById('app').contentWindow.NestDXFCore;
+        if (!core) throw new Error('API de teste não carregada');
+        const secondPiece = `0
+LWPOLYLINE
+90
+4
+70
+1
+10
+800
+20
+0
+10
+1000
+20
+0
+10
+1000
+20
+180
+10
+800
+20
+180`;
+        const multiple = rectangle.replace('\n0\nENDSEC\n0\nEOF', `\n${secondPiece}\n0\nENDSEC\n0\nEOF`);
+        const separated = core.parseDxfParts(multiple, 'duas_pecas.dxf');
+        if (separated.length !== 2) throw new Error(`Separação sintética incorreta: ${separated.length} peça(s)`);
+        const largerPiece = separated.find(part => Math.round(part.width) === 500);
+        if (!largerPiece || largerPiece.paths.length !== 2) throw new Error('O furo não permaneceu associado à peça externa');
+        const line = (x1, y1, x2, y2) => `0\nLINE\n10\n${x1}\n20\n${y1}\n11\n${x2}\n21\n${y2}`;
+        const rectanglesAsLines = [
+          line(0, 0, 100, 0), line(100, 100, 0, 100), line(100, 0, 100, 100), line(0, 100, 0, 0),
+          line(300, 0, 420, 0), line(420, 0, 420, 80), line(420, 80, 300, 80), line(300, 80, 300, 0)
+        ].join('\n');
+        const lineDxf = `0\nSECTION\n2\nENTITIES\n${rectanglesAsLines}\n0\nENDSEC\n0\nEOF`;
+        if (core.parseDxfParts(lineDxf, 'linhas.dxf').length !== 2) throw new Error('Segmentos LINE conectados não foram separados em peças');
+        log.push('Separação de múltiplas peças: OK');
+        const partA = core.parseDxf(rectangle, 'retangulo.dxf');
+        const partB = core.parseDxf(bracket, 'suporte_L.dxf');
+        partA.quantity = 8; partB.quantity = 4;
+        if (partA.width !== 500 || partA.height !== 300) throw new Error('Dimensões do retângulo incorretas');
+        if (Math.round(partB.area) !== 86800) throw new Error('Área do contorno côncavo incorreta');
+        log.push('Parser DXF: OK', 'Contorno côncavo: OK');
+        const progress = [];
+        const result = await core.optimize([partA, partB], { sheetWidth: 3000, sheetHeight: 1500, partGap: 8, edgeGap: 10, rotations: [0, 90], iterations: 8, maxSheets: 10 }, value => progress.push(value));
+        if (result.partCount !== 12 || result.sheets.length < 1) throw new Error('Resultado do nesting inválido');
+        if (progress.length < 2 || progress.at(-1) !== 1) throw new Error('Progresso assíncrono inválido');
+        if (!result.geometryValidated) throw new Error('Validação geométrica final não executada');
+        const dxf = core.createDxf(result);
+        if (!dxf.includes('AC1009') || !dxf.includes('POLYLINE') || !dxf.includes('VERTEX') || !dxf.includes('SEQEND') || !dxf.includes('LTYPE') || !dxf.endsWith('EOF\r\n')) throw new Error('Exportação DXF R12 inválida');
+        const dxfLines = dxf.trimEnd().split(/\r?\n/);
+        if (dxfLines.length % 2 !== 0) throw new Error('DXF exportado possui par de grupo incompleto');
+        for (let i = 0; i < dxfLines.length; i += 2) if (!Number.isFinite(Number(dxfLines[i].trim()))) throw new Error(`Código DXF inválido na linha ${i + 1}`);
+        const reopened = core.parseDxf(dxf, 'nesting_exportado.dxf');
+        if (Math.round(reopened.width) !== 3000 || Math.round(reopened.height) !== 1500) throw new Error('DXF exportado não foi reaberto corretamente');
+        partB.quantity = 1;
+        const freeResult = await core.optimize([partB], { sheetWidth: 800, sheetHeight: 800, partGap: 8, edgeGap: 10, rotations: [], freeRotation: true, iterations: 2, maxSheets: 2 });
+        if (freeResult.partCount !== 1 || !core.createReport(freeResult).includes('Rotações: Livre')) throw new Error('Modo de rotação livre inválido');
+        const appFrame = document.getElementById('app');
+        const languageSelect = appFrame.contentDocument.getElementById('languageSelect');
+        const flagOptions = appFrame.contentDocument.querySelectorAll('#languageMenu [data-language]');
+        const brazilFlag = appFrame.contentDocument.getElementById('currentFlag');
+        if (languageSelect.options.length !== 12 || flagOptions.length !== 12 || !brazilFlag.getAttribute('src').endsWith('flags/br.svg')) throw new Error('Lista de idiomas ou bandeira do Brasil inválida');
+        const languageChecks = { 'en-US':'Cutting plan', 'es-ES':'Plan de corte', 'zh-CN':'切割方案', 'hi-IN':'कटिंग प्लान', 'ar-SA':'خطة القطع', 'fr-FR':'Plan de coupe', 'bn-BD':'কাটিং প্ল্যান', 'ru-RU':'План раскроя', 'de-DE':'Schnittplan', 'it-IT':'Piano di taglio', 'ja-JP':'切断プラン' };
+        for (const [language, expected] of Object.entries(languageChecks)) {
+          languageSelect.value = language; languageSelect.dispatchEvent(new Event('change'));
+          if (appFrame.contentDocument.querySelector('[data-i18n="cuttingPlan"]').textContent !== expected) throw new Error(`Tradução inválida: ${language}`);
+        }
+        if (appFrame.contentDocument.documentElement.dir !== 'ltr') throw new Error('Direção LTR não restaurada');
+        languageSelect.value = 'ar-SA'; languageSelect.dispatchEvent(new Event('change'));
+        if (appFrame.contentDocument.documentElement.dir !== 'rtl') throw new Error('Direção RTL do árabe inválida');
+        languageSelect.value = 'pt-BR'; languageSelect.dispatchEvent(new Event('change'));
+        if (!brazilFlag.getAttribute('src').endsWith('flags/br.svg')) throw new Error('Bandeira do Brasil não foi restaurada');
+        log.push(`Nesting: OK (${result.partCount} peças / ${result.sheets.length} chapa)`, `Rotação livre: OK`, `Exportação e reabertura: OK (${dxf.length} caracteres)`, 'Idiomas e bandeiras: OK (12 opções)');
+        document.getElementById('status').textContent = 'PASS';
+      } catch (error) {
+        document.getElementById('status').textContent = 'FAIL'; log.push(error.stack || error.message);
+      }
+      document.getElementById('details').textContent = log.join('\n');
+    });
+  </script>
+</body>
+</html>

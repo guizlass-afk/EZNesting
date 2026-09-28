@@ -1,0 +1,10 @@
+Componentes de geometria usados pelo NestDXF
+=============================================
+
+A estratégia de NFP/soma de Minkowski foi adaptada do SVGnest,
+Copyright (c) 2015 Jack Qiao, distribuído sob a licença MIT.
+Consulte LICENSE-SVGNEST.txt neste diretório.
+
+clipper.js é Clipper 6.1.3a, Copyright (c) 2010-2014 Angus Johnson,
+distribuído sob a Boost Software License 1.0. O aviso de licença original
+está preservado no cabeçalho do arquivo.
