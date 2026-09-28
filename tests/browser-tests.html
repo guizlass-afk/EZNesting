@@ -140,6 +140,18 @@ LWPOLYLINE
         for (let i = 0; i < dxfLines.length; i += 2) if (!Number.isFinite(Number(dxfLines[i].trim()))) throw new Error(`Código DXF inválido na linha ${i + 1}`);
         const reopened = core.parseDxf(dxf, 'nesting_exportado.dxf');
         if (Math.round(reopened.width) !== 3000 || Math.round(reopened.height) !== 1500) throw new Error('DXF exportado não foi reaberto corretamente');
+        partA.quantity = 3;
+        const mixedResult = await core.optimize([partA], {
+          sheetTypes: [
+            { id: 'retalho', width: 520, height: 320, quantity: 2 },
+            { id: 'chapa-alta', width: 520, height: 330, quantity: 1 }
+          ],
+          partGap: 8, edgeGap: 10, rotations: [0], iterations: 4
+        });
+        const mixedUsage = mixedResult.sheets.reduce((map, sheet) => map.set(sheet.sheetTypeId, (map.get(sheet.sheetTypeId) || 0) + 1), new Map());
+        if (mixedResult.sheets.length !== 3 || mixedUsage.get('retalho') !== 2 || mixedUsage.get('chapa-alta') !== 1) throw new Error('Estoque misto ou limite de quantidade não foi respeitado');
+        if (mixedResult.totalSheetArea !== 520 * 320 * 2 + 520 * 330) throw new Error('Área das chapas mistas incorreta');
+        if (!core.createReport(mixedResult).includes('520 × 330 mm')) throw new Error('Relatório não lista as dimensões das chapas utilizadas');
         partB.quantity = 1;
         const freeResult = await core.optimize([partB], { sheetWidth: 800, sheetHeight: 800, partGap: 8, edgeGap: 10, rotations: [], freeRotation: true, iterations: 2, maxSheets: 2 });
         if (freeResult.partCount !== 1 || !core.createReport(freeResult).includes('Rotações: Livre')) throw new Error('Modo de rotação livre inválido');
@@ -148,6 +160,13 @@ LWPOLYLINE
         const flagOptions = appFrame.contentDocument.querySelectorAll('#languageMenu [data-language]');
         const brazilFlag = appFrame.contentDocument.getElementById('currentFlag');
         if (languageSelect.options.length !== 12 || flagOptions.length !== 12 || !brazilFlag.getAttribute('src').endsWith('flags/br.svg')) throw new Error('Lista de idiomas ou bandeira do Brasil inválida');
+        const sheetList = appFrame.contentDocument.getElementById('sheetList');
+        const addSheetButton = appFrame.contentDocument.getElementById('addSheetButton');
+        if (sheetList.querySelectorAll('.sheet-row').length !== 1) throw new Error('A lista de chapas não iniciou com uma linha');
+        addSheetButton.click();
+        if (sheetList.querySelectorAll('.sheet-row').length !== 2) throw new Error('O botão de adicionar chapa não criou uma linha');
+        sheetList.querySelector('.sheet-row:last-child .remove-sheet').click();
+        if (sheetList.querySelectorAll('.sheet-row').length !== 1) throw new Error('A remoção de tamanho de chapa falhou');
         const languageChecks = { 'en-US':'Cutting plan', 'es-ES':'Plan de corte', 'zh-CN':'切割方案', 'hi-IN':'कटिंग प्लान', 'ar-SA':'خطة القطع', 'fr-FR':'Plan de coupe', 'bn-BD':'কাটিং প্ল্যান', 'ru-RU':'План раскроя', 'de-DE':'Schnittplan', 'it-IT':'Piano di taglio', 'ja-JP':'切断プラン' };
         for (const [language, expected] of Object.entries(languageChecks)) {
           languageSelect.value = language; languageSelect.dispatchEvent(new Event('change'));
@@ -158,7 +177,7 @@ LWPOLYLINE
         if (appFrame.contentDocument.documentElement.dir !== 'rtl') throw new Error('Direção RTL do árabe inválida');
         languageSelect.value = 'pt-BR'; languageSelect.dispatchEvent(new Event('change'));
         if (!brazilFlag.getAttribute('src').endsWith('flags/br.svg')) throw new Error('Bandeira do Brasil não foi restaurada');
-        log.push(`Nesting: OK (${result.partCount} peças / ${result.sheets.length} chapa)`, `Rotação livre: OK`, `Exportação e reabertura: OK (${dxf.length} caracteres)`, 'Idiomas e bandeiras: OK (12 opções)');
+        log.push(`Nesting: OK (${result.partCount} peças / ${result.sheets.length} chapa)`, 'Estoque misto e quantidades: OK', `Rotação livre: OK`, `Exportação e reabertura: OK (${dxf.length} caracteres)`, 'Idiomas e bandeiras: OK (12 opções)');
         document.getElementById('status').textContent = 'PASS';
       } catch (error) {
         document.getElementById('status').textContent = 'FAIL'; log.push(error.stack || error.message);

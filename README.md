@@ -6,7 +6,7 @@ Aplicação local para organizar peças DXF em chapas retangulares, respeitando 
 
 1. Abra `index.html` no Microsoft Edge, Google Chrome ou Firefox.
 2. Adicione um ou mais arquivos DXF em formato ASCII.
-3. Informe a quantidade de cada peça, o tamanho da chapa e as folgas.
+3. Informe a quantidade de cada peça, os tamanhos e quantidades disponíveis no estoque de chapas e as folgas. Use **+ Adicionar tamanho de chapa** para cadastrar chapas inteiras ou retalhos.
 4. Escolha o modo de rotação: sem rotação, em incrementos de 90º, em incrementos de 45º ou livre.
 5. Clique em **Otimizar nesting**.
 6. Confira o plano e clique em **Exportar DXF**.
@@ -31,7 +31,7 @@ O arquivo exportado usa **DXF R12 ASCII**, entidades `POLYLINE`/`VERTEX` e tabel
 
 ## Estratégia de otimização
 
-O programa executa múltiplas tentativas, ordenando as peças por área/dimensão e testando as rotações selecionadas. Os candidatos de encaixe são obtidos por *No-Fit Polygons* (soma de Minkowski), permitindo contatos reais entre contornos inclinados e côncavos. A melhor solução minimiza primeiro o número de chapas e depois a envoltória ocupada.
+O programa executa múltiplas tentativas, ordenando as peças por área/dimensão e testando as rotações selecionadas. Os candidatos de encaixe são obtidos por *No-Fit Polygons* (soma de Minkowski), permitindo contatos reais entre contornos inclinados e côncavos. Quando há vários tamanhos disponíveis, as tentativas alternam a prioridade entre retalhos e chapas maiores. A melhor solução minimiza primeiro a área total de material consumida, depois a quantidade de chapas e a envoltória ocupada, sempre respeitando o estoque informado.
 
 Durante o cálculo, uma barra mostra o avanço por tentativa e por peça. O processamento libera periodicamente a interface do navegador, mantendo a página responsiva mesmo em arquivos maiores.
 

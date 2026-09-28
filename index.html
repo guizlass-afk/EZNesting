@@ -52,9 +52,12 @@
 
       <section class="step-card">
         <div class="section-title"><span class="step-number">2</span><div><h2 data-i18n="sheetAndGaps">Chapa e folgas</h2><p data-i18n="dimensionsMm">Dimensões em milímetros</p></div></div>
-        <div class="field-grid two">
-          <label><span data-i18n="sheetWidth">Largura da chapa</span><input id="sheetWidth" type="number" value="3000" min="1" step="1"></label>
-          <label><span data-i18n="sheetLength">Comprimento da chapa</span><input id="sheetHeight" type="number" value="1500" min="1" step="1"></label>
+        <div class="sheet-stock">
+          <div class="sheet-stock-title" data-i18n="sheetStock">Estoque de chapas</div>
+          <div id="sheetList" class="sheet-list"></div>
+          <button id="addSheetButton" class="add-sheet-button" type="button"><span aria-hidden="true">+</span><span data-i18n="addSheetSize">Adicionar tamanho de chapa</span></button>
+        </div>
+        <div class="field-grid two gap-fields">
           <label><span data-i18n="betweenPieces">Entre peças</span><input id="partGap" type="number" value="8" min="0" step="0.1"></label>
           <label><span data-i18n="toEdge">Até a borda</span><input id="edgeGap" type="number" value="10" min="0" step="0.1"></label>
         </div>
@@ -66,9 +69,8 @@
             <option value="free" data-i18n="rotFree">Livre</option>
           </select>
         </label>
-        <div class="field-grid two compact">
+        <div class="field-grid compact">
           <label><span data-i18n="attempts">Tentativas</span><input id="iterations" type="number" value="24" min="1" max="100" step="1"></label>
-          <label><span data-i18n="maxSheets">Máx. de chapas</span><input id="maxSheets" type="number" value="50" min="1" max="999" step="1"></label>
         </div>
       </section>
 

@@ -6,9 +6,9 @@
     languageSelect: $('languageSelect'), languagePicker: $('languagePicker'), languageButton: $('languageButton'),
     languageMenu: $('languageMenu'), currentFlag: $('currentFlag'), currentLanguage: $('currentLanguage'),
     fileInput: $('fileInput'), dropZone: $('dropZone'), fileList: $('fileList'),
-    sheetWidth: $('sheetWidth'), sheetHeight: $('sheetHeight'), partGap: $('partGap'),
+    sheetList: $('sheetList'), addSheetButton: $('addSheetButton'), partGap: $('partGap'),
     edgeGap: $('edgeGap'), rotations: $('rotations'), iterations: $('iterations'),
-    maxSheets: $('maxSheets'), nestButton: $('nestButton'), message: $('message'),
+    nestButton: $('nestButton'), message: $('message'),
     progressPanel: $('progressPanel'), progressLabel: $('progressLabel'), progressPercent: $('progressPercent'),
     progressTrack: $('progressTrack'), progressBar: $('progressBar'), progressDetail: $('progressDetail'),
     canvas: $('previewCanvas'), canvasWrap: $('canvasWrap'), emptyState: $('emptyState'),
@@ -59,6 +59,24 @@
   // O nome do produto é o mesmo em todos os idiomas e não possui subtítulo.
   Object.values(translations).forEach(locale => { locale.pageTitle = 'EZ Nester'; delete locale.tagline; });
 
+  const stockTranslations = {
+    'pt-BR': ['Estoque de chapas', 'Adicionar tamanho de chapa', 'Remover tamanho', 'A quantidade de cada chapa deve ser ao menos 1.', 'O estoque de chapas terminou antes de posicionar todas as peças.'],
+    'en-US': ['Sheet stock', 'Add sheet size', 'Remove size', 'Each sheet quantity must be at least 1.', 'The sheet stock ran out before all parts could be placed.'],
+    'es-ES': ['Inventario de chapas', 'Añadir tamaño de chapa', 'Eliminar tamaño', 'La cantidad de cada chapa debe ser al menos 1.', 'El inventario de chapas se agotó antes de colocar todas las piezas.'],
+    'zh-CN': ['板材库存', '添加板材尺寸', '移除尺寸', '每种板材的数量至少为 1。', '所有零件放置完成前板材库存已用尽。'],
+    'hi-IN': ['शीट स्टॉक', 'शीट आकार जोड़ें', 'आकार हटाएँ', 'हर शीट की मात्रा कम से कम 1 होनी चाहिए।', 'सभी पार्ट रखने से पहले शीट स्टॉक समाप्त हो गया।'],
+    'ar-SA': ['مخزون الألواح', 'إضافة مقاس لوح', 'إزالة المقاس', 'يجب ألا تقل كمية كل لوح عن 1.', 'نفد مخزون الألواح قبل وضع جميع القطع.'],
+    'fr-FR': ['Stock de tôles', 'Ajouter un format de tôle', 'Supprimer le format', 'La quantité de chaque tôle doit être au moins 1.', 'Le stock de tôles est épuisé avant le placement de toutes les pièces.'],
+    'bn-BD': ['শিট স্টক', 'শিটের মাপ যোগ করুন', 'মাপ সরান', 'প্রতিটি শিটের পরিমাণ কমপক্ষে ১ হতে হবে।', 'সব পার্ট বসানোর আগেই শিট স্টক শেষ হয়েছে।'],
+    'ru-RU': ['Запас листов', 'Добавить размер листа', 'Удалить размер', 'Количество каждого листа должно быть не менее 1.', 'Запас листов закончился до размещения всех деталей.'],
+    'de-DE': ['Blechbestand', 'Blechgröße hinzufügen', 'Größe entfernen', 'Die Menge jedes Blechs muss mindestens 1 sein.', 'Der Blechbestand war aufgebraucht, bevor alle Teile platziert wurden.'],
+    'it-IT': ['Scorte lamiere', 'Aggiungi formato lamiera', 'Rimuovi formato', 'La quantità di ogni lamiera deve essere almeno 1.', 'Le scorte sono terminate prima di posizionare tutti i pezzi.'],
+    'ja-JP': ['板材在庫', '板材サイズを追加', 'サイズを削除', '各板材の数量は1以上にしてください。', 'すべての部品を配置する前に板材在庫がなくなりました。']
+  };
+  Object.entries(stockTranslations).forEach(([language, values]) => Object.assign(translations[language], {
+    sheetStock: values[0], addSheetSize: values[1], removeSheet: values[2], invalidSheetQuantity: values[3], sheetStockExhausted: values[4]
+  }));
+
   Object.assign(translations['pt-BR'], {
     binaryDxf:'DXF binário não é aceito; salve-o como DXF ASCII.', noGeometry:'Nenhuma geometria compatível encontrada na seção ENTITIES.', invalidGeometry:'A geometria não forma uma peça válida.', noOutline:'Não foi possível determinar o contorno externo da peça.', sheetLimit:'O limite de {count} chapas foi atingido.', partDoesNotFit:'A peça “{name}” não cabe na chapa, mesmo com as rotações permitidas.', addPiece:'Adicione pelo menos uma peça.', finalConflict:'A validação geométrica final encontrou conflito entre “{first}” e “{second}”.', invalidSheet:'Informe dimensões válidas para a chapa.', negativeDistances:'As distâncias não podem ser negativas.', edgeTooLarge:'A distância da borda é grande demais para esta chapa.', attemptsRange:'Use entre 1 e 100 tentativas.', maxSheetsMin:'O máximo de chapas deve ser ao menos 1.'
   });
@@ -98,7 +116,7 @@
   }
 
   const state = {
-    parts: [], result: null, nextId: 1, progressHideTimer: null, nfpCache: new Map(),
+    parts: [], result: null, nextId: 1, nextSheetId: 1, progressHideTimer: null, nfpCache: new Map(),
     language: initialLanguage(),
     view: { scale: 1, offsetX: 0, offsetY: 0, dragging: false, lastX: 0, lastY: 0 }
   };
@@ -124,6 +142,7 @@
     document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
     document.querySelectorAll('[data-i18n-html]').forEach(element => { element.innerHTML = t(element.dataset.i18nHtml); });
     document.querySelectorAll('[data-i18n-title]').forEach(element => { element.title = t(element.dataset.i18nTitle); });
+    refreshSheetRowsLanguage();
     ui.languageButton.setAttribute('aria-label', `Language: ${meta.label}`);
     if (persist) try { localStorage.setItem('nestdxf-language', state.language); } catch (_) {}
     renderFiles();
@@ -559,10 +578,11 @@
   function seededRandom(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   function yieldToBrowser() { return new Promise(resolve => setTimeout(resolve, 0)); }
 
-  function createSheet(config) {
+  function createSheet(config, sheetType, stockIndex) {
     return {
+      width: sheetType.width, height: sheetType.height, sheetTypeId: sheetType.id, stockIndex,
       placements: [], usedMaxX: config.edgeGap, usedMaxY: config.edgeGap,
-      spatialGrid: new Map(), cellSize: Math.max(1, Math.min(config.sheetWidth, config.sheetHeight) / 16), maxTolerance: 0
+      spatialGrid: new Map(), cellSize: Math.max(1, Math.min(sheetType.width, sheetType.height) / 16), maxTolerance: 0
     };
   }
   function gridCells(box, cellSize, padding = 0) {
@@ -636,7 +656,7 @@
     const usedWidth = Math.max(sheet.usedMaxX, x + shape.width) - config.edgeGap;
     const usedHeight = Math.max(sheet.usedMaxY, y + shape.height) - config.edgeGap;
     const envelope = usedWidth * usedHeight;
-    const balance = (usedWidth / config.sheetWidth + usedHeight / config.sheetHeight) * config.sheetWidth * config.sheetHeight * .025;
+    const balance = (usedWidth / sheet.width + usedHeight / sheet.height) * sheet.width * sheet.height * .025;
     return envelope + balance + (x + y) * 1e-4;
   }
 
@@ -644,14 +664,14 @@
     const candidates = new Map();
     const add = (x, y, source = 0) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      if (x < config.edgeGap - 1e-6 || y < config.edgeGap - 1e-6 || x + shape.width > config.sheetWidth - config.edgeGap + 1e-6 || y + shape.height > config.sheetHeight - config.edgeGap + 1e-6) return;
+      if (x < config.edgeGap - 1e-6 || y < config.edgeGap - 1e-6 || x + shape.width > sheet.width - config.edgeGap + 1e-6 || y + shape.height > sheet.height - config.edgeGap + 1e-6) return;
       const key = `${Math.round(x * 100)}/${Math.round(y * 100)}`;
       if (!candidates.has(key)) candidates.set(key, { x, y, source });
     };
 
     // Bordas e cantos da chapa continuam sendo candidatos essenciais.
-    const left = config.edgeGap, right = config.sheetWidth - config.edgeGap - shape.width;
-    const bottom = config.edgeGap, top = config.sheetHeight - config.edgeGap - shape.height;
+    const left = config.edgeGap, right = sheet.width - config.edgeGap - shape.width;
+    const bottom = config.edgeGap, top = sheet.height - config.edgeGap - shape.height;
     add(left, bottom); add(right, bottom); add(left, top); add(right, top);
 
     const contactSet = new Set(sheet.placements.slice(-6));
@@ -676,7 +696,7 @@
   }
 
   function canPlace(sheet, shape, x, y, config) {
-    if (x < config.edgeGap - 1e-7 || y < config.edgeGap - 1e-7 || x + shape.width > config.sheetWidth - config.edgeGap + 1e-7 || y + shape.height > config.sheetHeight - config.edgeGap + 1e-7) return null;
+    if (x < config.edgeGap - 1e-7 || y < config.edgeGap - 1e-7 || x + shape.width > sheet.width - config.edgeGap + 1e-7 || y + shape.height > sheet.height - config.edgeGap + 1e-7) return null;
     const box = { minX: x, minY: y, maxX: x + shape.width, maxY: y + shape.height };
     const outline = transformedOutline(shape, x, y);
     const maximumGap = config.partGap + (shape.tolerance || 0) + sheet.maxTolerance;
@@ -695,7 +715,7 @@
     let lastYield = performance.now();
     for (const angle of rotationOrder) {
       const shape = rotatedShape(instance.part, angle);
-      if (shape.width > config.sheetWidth - 2 * config.edgeGap + 1e-7 || shape.height > config.sheetHeight - 2 * config.edgeGap + 1e-7) continue;
+      if (shape.width > sheet.width - 2 * config.edgeGap + 1e-7 || shape.height > sheet.height - 2 * config.edgeGap + 1e-7) continue;
       let validForRotation = 0;
       for (const pos of candidatePositions(sheet, instance, shape, config)) {
         if (performance.now() - lastYield > 28) { await yieldToBrowser(); lastYield = performance.now(); }
@@ -729,6 +749,16 @@
       ordered.splice(0, ordered.length, ...randomized.map(entry => entry.item));
     }
     const sheets = [];
+    const stockUsage = new Map(config.sheetTypes.map(type => [type.id, 0]));
+    const sheetArea = type => type.width * type.height;
+    const orderedAvailableStock = () => {
+      const available = config.sheetTypes.filter(type => (stockUsage.get(type.id) || 0) < type.quantity);
+      if (trial % 4 === 0) available.sort((a, b) => sheetArea(a) - sheetArea(b));
+      else if (trial % 4 === 1) available.sort((a, b) => sheetArea(b) - sheetArea(a));
+      else if (trial % 4 === 2) available.sort((a, b) => Math.max(a.width, a.height) - Math.max(b.width, b.height) || sheetArea(a) - sheetArea(b));
+      else available.sort((a, b) => sheetArea(a) * (.8 + random() * .4) - sheetArea(b) * (.8 + random() * .4));
+      return available;
+    };
     for (let instanceIndex = 0; instanceIndex < ordered.length; instanceIndex++) {
       const instance = ordered[instanceIndex];
       let placed = false;
@@ -736,43 +766,71 @@
         if (await placeOnSheet(sheet, instance, config.rotations, config, random, trial > 3)) { placed = true; break; }
       }
       if (!placed) {
-        if (sheets.length >= config.maxSheets) throw new Error(t('sheetLimit', { count: config.maxSheets }));
-        const sheet = createSheet(config);
-        sheets.push(sheet);
-        if (!await placeOnSheet(sheet, instance, config.rotations, config, random, trial > 3)) throw new Error(t('partDoesNotFit', { name: instance.part.name }));
+        for (const type of orderedAvailableStock()) {
+          const stockIndex = (stockUsage.get(type.id) || 0) + 1;
+          const candidateSheet = createSheet(config, type, stockIndex);
+          if (!await placeOnSheet(candidateSheet, instance, config.rotations, config, random, trial > 3)) continue;
+          sheets.push(candidateSheet);
+          stockUsage.set(type.id, stockIndex);
+          placed = true;
+          break;
+        }
+        if (!placed) {
+          const angles = config.freeRotation ? freeRotationCandidates(instance.part) : config.rotations;
+          const fitsConfiguredSize = config.sheetTypes.some(type => angles.some(angle => {
+            const shape = rotatedShape(instance.part, angle);
+            return shape.width <= type.width - 2 * config.edgeGap + 1e-7 && shape.height <= type.height - 2 * config.edgeGap + 1e-7;
+          }));
+          throw new Error(fitsConfiguredSize ? t('sheetStockExhausted') : t('partDoesNotFit', { name: instance.part.name }));
+        }
       }
       onPiece?.(instanceIndex + 1, ordered.length, instance.part.name);
       await yieldToBrowser();
     }
     const occupied = sheets.reduce((sum, s) => sum + (s.usedMaxY - config.edgeGap) * (s.usedMaxX - config.edgeGap), 0);
-    const score = sheets.length * 1e15 + occupied;
-    return { sheets, score };
+    const totalSheetArea = sheets.reduce((sum, sheet) => sum + sheet.width * sheet.height, 0);
+    return { sheets, totalSheetArea, occupied };
   }
 
   async function optimize(parts, config, onProgress = () => {}) {
+    const sheetTypes = Array.isArray(config.sheetTypes) && config.sheetTypes.length
+      ? config.sheetTypes.map((type, index) => ({ id: String(type.id ?? `sheet-${index + 1}`), width: Number(type.width), height: Number(type.height), quantity: Math.max(1, Math.trunc(Number(type.quantity) || 1)) }))
+      : [{ id: 'sheet-1', width: Number(config.sheetWidth), height: Number(config.sheetHeight), quantity: Math.max(1, Math.trunc(Number(config.maxSheets) || 1)) }];
+    config = { ...config, sheetTypes, maxSheets: sheetTypes.reduce((sum, type) => sum + type.quantity, 0) };
     const instances = [];
     for (const part of parts) for (let n = 1; n <= part.quantity; n++) instances.push({ part, instanceNumber: n });
     if (!instances.length) throw new Error(t('addPiece'));
     const totalArea = instances.reduce((sum, item) => sum + item.part.area, 0);
-    const usableSheetArea = (config.sheetWidth - 2 * config.edgeGap) * (config.sheetHeight - 2 * config.edgeGap);
-    const theoreticalMinimum = Math.max(1, Math.ceil(totalArea / usableSheetArea));
-    let best = null, stagnantTrials = 0, iterationsRun = 0;
+    const onlySheetType = config.sheetTypes.length === 1 ? config.sheetTypes[0] : null;
+    const usableSheetArea = onlySheetType ? (onlySheetType.width - 2 * config.edgeGap) * (onlySheetType.height - 2 * config.edgeGap) : 0;
+    const theoreticalMinimum = onlySheetType ? Math.max(1, Math.ceil(totalArea / usableSheetArea)) : 0;
+    let best = null, lastError = null, stagnantTrials = 0, iterationsRun = 0;
     const minimumTrials = Math.min(config.iterations, Math.max(4, Math.ceil(Math.sqrt(instances.length))));
     const patience = Math.max(4, Math.ceil(minimumTrials * .75));
     for (let trial = 0; trial < config.iterations; trial++) {
       onProgress(trial / config.iterations, t('trial', { current: trial + 1, total: config.iterations }));
-      const result = await runTrial(instances, config, trial, (piece, total, name) => {
-        onProgress((trial + piece / total) / config.iterations, t('trialPiece', { current: trial + 1, attempts: config.iterations, piece, total, name }));
-      });
+      let result;
+      try {
+        result = await runTrial(instances, config, trial, (piece, total, name) => {
+          onProgress((trial + piece / total) / config.iterations, t('trialPiece', { current: trial + 1, attempts: config.iterations, piece, total, name }));
+        });
+      } catch (error) {
+        lastError = error; iterationsRun++; stagnantTrials++;
+        continue;
+      }
       iterationsRun++;
-      if (!best || result.score < best.score - 1e-6) { best = result; stagnantTrials = 0; }
+      const isBetter = !best || result.totalSheetArea < best.totalSheetArea - 1e-6 ||
+        (Math.abs(result.totalSheetArea - best.totalSheetArea) <= 1e-6 && (result.sheets.length < best.sheets.length ||
+        (result.sheets.length === best.sheets.length && result.occupied < best.occupied - 1e-6)));
+      if (isBetter) { best = result; stagnantTrials = 0; }
       else stagnantTrials++;
       // Se a quantidade de chapas atingiu o limite inferior por área, nenhuma
       // outra tentativa pode reduzi-la. Faz apenas três variações para refinar
       // o arranjo e encerra a busca.
-      if (best.sheets.length === theoreticalMinimum && iterationsRun >= Math.min(3, config.iterations)) break;
+      if (onlySheetType && best.sheets.length === theoreticalMinimum && iterationsRun >= Math.min(3, config.iterations)) break;
       if (iterationsRun >= minimumTrials && stagnantTrials >= patience) break;
     }
+    if (!best) throw lastError || new Error(t('sheetStockExhausted'));
     onProgress(1, t('finalizing'));
     const finalResult = {
       ...best, config, totalArea, partCount: instances.length, createdAt: new Date(),
@@ -808,9 +866,9 @@
   function createDxf(result) {
     const out = [];
     const pair = (code, value) => { out.push(String(code), String(value)); };
-    const spacing = Math.max(100, result.config.sheetWidth * .05);
-    const drawingWidth = result.sheets.length * result.config.sheetWidth + Math.max(0, result.sheets.length - 1) * spacing;
-    const drawingHeight = result.config.sheetHeight + spacing * .5;
+    const layout = previewLayout(result), spacing = layout.spacing;
+    const drawingWidth = layout.width;
+    const drawingHeight = layout.height + spacing * .5;
 
     // DXF R12 ASCII usa entidades POLYLINE/VERTEX e é aceito por leitores
     // mais rígidos, incluindo SolidWorks e eDrawings.
@@ -841,28 +899,28 @@
       pair(0, 'SEQEND'); pair(8, layer);
     };
     result.sheets.forEach((sheet, index) => {
-      const ox = index * (result.config.sheetWidth + spacing);
-      polyline([{x:ox,y:0},{x:ox+result.config.sheetWidth,y:0},{x:ox+result.config.sheetWidth,y:result.config.sheetHeight},{x:ox,y:result.config.sheetHeight}], true, 'CHAPAS');
+      const ox = layout.offsets[index];
+      polyline([{x:ox,y:0},{x:ox+sheet.width,y:0},{x:ox+sheet.width,y:sheet.height},{x:ox,y:sheet.height}], true, 'CHAPAS');
       const m = result.config.edgeGap;
-      if (m > 0 && m * 2 < result.config.sheetWidth && m * 2 < result.config.sheetHeight) polyline([{x:ox+m,y:m},{x:ox+result.config.sheetWidth-m,y:m},{x:ox+result.config.sheetWidth-m,y:result.config.sheetHeight-m},{x:ox+m,y:result.config.sheetHeight-m}], true, 'MARGENS');
+      if (m > 0 && m * 2 < sheet.width && m * 2 < sheet.height) polyline([{x:ox+m,y:m},{x:ox+sheet.width-m,y:m},{x:ox+sheet.width-m,y:sheet.height-m},{x:ox+m,y:sheet.height-m}], true, 'MARGENS');
       for (const placed of sheet.placements) {
         const layer = safeLayer(placed.part.name);
         for (const path of placed.shape.paths) polyline(path.points.map(p => ({ x: p.x + placed.x + ox, y: p.y + placed.y })), path.closed, layer);
       }
-      pair(0, 'TEXT'); pair(8, 'CHAPAS'); pair(10, dxfNumber(ox)); pair(20, dxfNumber(result.config.sheetHeight + spacing * .25)); pair(30, 0); pair(40, dxfNumber(Math.max(10, Math.min(40, spacing * .18)))); pair(1, `CHAPA ${index + 1}`); pair(50, 0);
+      pair(0, 'TEXT'); pair(8, 'CHAPAS'); pair(10, dxfNumber(ox)); pair(20, dxfNumber(sheet.height + spacing * .25)); pair(30, 0); pair(40, dxfNumber(Math.max(10, Math.min(40, spacing * .18)))); pair(1, `CHAPA ${index + 1} - ${dxfNumber(sheet.width)} x ${dxfNumber(sheet.height)} mm`); pair(50, 0);
     });
     pair(0, 'ENDSEC'); pair(0, 'EOF');
     return out.join('\r\n') + '\r\n';
   }
 
   function createReport(result) {
-    const usage = result.totalArea / (result.sheets.length * result.config.sheetWidth * result.config.sheetHeight) * 100;
+    const usage = result.totalArea / result.totalSheetArea * 100;
     const lines = [
       `${t('report').toLocaleUpperCase(state.language)} NESTING — EZ Nester`,
       `${t('generatedAt')}: ${result.createdAt.toLocaleString(state.language)}`,
       '',
-      `${t('sheetWidth')}: ${fmt(result.config.sheetWidth)} mm`,
-      `${t('sheetLength')}: ${fmt(result.config.sheetHeight)} mm`,
+      `${t('sheetStock')}:`,
+      ...result.config.sheetTypes.map(type => `  ${fmt(type.width)} × ${fmt(type.height)} mm — ${t('quantity')}: ${type.quantity}`),
       `${t('betweenPieces')}: ${fmt(result.config.partGap)} mm`,
       `${t('toEdge')}: ${fmt(result.config.edgeGap)} mm`,
       `${translations[state.language].reportRotations ?? t('rotationsAllowed')}: ${result.config.freeRotation ? t('rotFree') : result.config.rotations.map(v => v + '°').join(', ')}`,
@@ -876,7 +934,7 @@
       ''
     ];
     result.sheets.forEach((sheet, index) => {
-      lines.push(`${t('sheetUpper')} ${index + 1} — ${sheet.placements.length} ${t('pieces').toLocaleLowerCase(state.language)}`);
+      lines.push(`${t('sheetUpper')} ${index + 1} — ${fmt(sheet.width)} × ${fmt(sheet.height)} mm — ${sheet.placements.length} ${t('pieces').toLocaleLowerCase(state.language)}`);
       sheet.placements.forEach(p => lines.push(`  ${p.part.name} #${p.instanceNumber} | X=${fmt(p.x, 2)} Y=${fmt(p.y, 2)} | ${t('rotation')}=${p.shape.angle}°`));
       lines.push('');
     });
@@ -892,8 +950,11 @@
 
   // ---------- Preview ----------
   function previewLayout(result) {
-    const spacing = Math.max(100, result.config.sheetWidth * .05);
-    return { spacing, width: result.sheets.length * result.config.sheetWidth + Math.max(0, result.sheets.length - 1) * spacing, height: result.config.sheetHeight };
+    const maxWidth = Math.max(...result.sheets.map(sheet => sheet.width), 1);
+    const spacing = Math.max(100, maxWidth * .05), offsets = [];
+    let width = 0;
+    result.sheets.forEach((sheet, index) => { offsets.push(width); width += sheet.width + (index < result.sheets.length - 1 ? spacing : 0); });
+    return { spacing, offsets, width, height: Math.max(...result.sheets.map(sheet => sheet.height), 1) };
   }
   function resizeCanvas() {
     const rect = ui.canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -917,14 +978,14 @@
     const toScreen = (x, y) => ({ x: offsetX + x * scale, y: offsetY - y * scale });
     const result = state.result, layout = previewLayout(result);
     result.sheets.forEach((sheet, sheetIndex) => {
-      const originX = sheetIndex * (result.config.sheetWidth + layout.spacing);
-      const tl = toScreen(originX, result.config.sheetHeight), br = toScreen(originX + result.config.sheetWidth, 0);
+      const originX = layout.offsets[sheetIndex];
+      const tl = toScreen(originX, sheet.height), br = toScreen(originX + sheet.width, 0);
       ctx.fillStyle = '#fff'; ctx.strokeStyle = '#8da0a8'; ctx.lineWidth = 1.25; ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y); ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
       if (result.config.edgeGap > 0) {
-        const m1 = toScreen(originX + result.config.edgeGap, result.config.sheetHeight - result.config.edgeGap), m2 = toScreen(originX + result.config.sheetWidth - result.config.edgeGap, result.config.edgeGap);
+        const m1 = toScreen(originX + result.config.edgeGap, sheet.height - result.config.edgeGap), m2 = toScreen(originX + sheet.width - result.config.edgeGap, result.config.edgeGap);
         ctx.save(); ctx.strokeStyle = '#d4dcdf'; ctx.setLineDash([4, 4]); ctx.strokeRect(m1.x, m1.y, m2.x - m1.x, m2.y - m1.y); ctx.restore();
       }
-      const label = toScreen(originX, result.config.sheetHeight); ctx.fillStyle = '#56666f'; ctx.font = '600 11px system-ui'; ctx.fillText(`${t('sheetUpper')} ${sheetIndex + 1}`, label.x, label.y - 8);
+      const label = toScreen(originX, sheet.height); ctx.fillStyle = '#56666f'; ctx.font = '600 11px system-ui'; ctx.fillText(`${t('sheetUpper')} ${sheetIndex + 1} · ${fmt(sheet.width, 0)} × ${fmt(sheet.height, 0)} mm`, label.x, label.y - 8);
       sheet.placements.forEach(placed => {
         const color = palette[state.parts.findIndex(p => p.id === placed.part.id) % palette.length];
         ctx.beginPath();
@@ -973,13 +1034,44 @@
     ui.nestButton.disabled = state.parts.length === 0;
   }
   function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+  function refreshSheetRowsLanguage() {
+    if (!ui.sheetList) return;
+    ui.sheetList.querySelectorAll('.remove-sheet').forEach((button, index) => {
+      button.title = t('removeSheet');
+      button.setAttribute('aria-label', `${t('removeSheet')} ${index + 1}`);
+    });
+  }
+  function updateSheetRemoveButtons() {
+    const rows = [...ui.sheetList.querySelectorAll('.sheet-row')];
+    rows.forEach(row => { row.querySelector('.remove-sheet').disabled = rows.length === 1; });
+    refreshSheetRowsLanguage();
+  }
+  function addSheetRow(values = {}) {
+    const row = document.createElement('div');
+    row.className = 'sheet-row';
+    row.dataset.sheetId = `sheet-${state.nextSheetId++}`;
+    const width = Number(values.width) > 0 ? Number(values.width) : 3000;
+    const height = Number(values.height) > 0 ? Number(values.height) : 1500;
+    const quantity = Number(values.quantity) > 0 ? Math.trunc(Number(values.quantity)) : 1;
+    row.innerHTML = `<label><span data-i18n="sheetWidth">${escapeHtml(t('sheetWidth'))}</span><input class="sheet-width" type="number" value="${width}" min="1" step="1"></label><label><span data-i18n="sheetLength">${escapeHtml(t('sheetLength'))}</span><input class="sheet-height" type="number" value="${height}" min="1" step="1"></label><label><span data-i18n="quantity">${escapeHtml(t('quantity'))}</span><input class="sheet-quantity" type="number" value="${quantity}" min="1" max="999" step="1"></label><button class="remove-sheet" type="button" title="${escapeHtml(t('removeSheet'))}">×</button>`;
+    row.querySelectorAll('input').forEach(input => input.addEventListener('change', () => { if (state.result) resetResult(); }));
+    row.querySelector('.remove-sheet').addEventListener('click', () => {
+      if (ui.sheetList.children.length <= 1) return;
+      row.remove(); updateSheetRemoveButtons();
+      if (state.result) resetResult();
+    });
+    ui.sheetList.appendChild(row);
+    updateSheetRemoveButtons();
+    if (state.result) resetResult();
+    return row;
+  }
   function refreshResultText() {
     if (!state.result) {
       ui.resultSubtitle.textContent = state.parts.length ? t('configure') : t('addToStart');
       return;
     }
-    const result = state.result, config = result.config;
-    const usage = result.totalArea / (result.sheets.length * config.sheetWidth * config.sheetHeight) * 100;
+    const result = state.result;
+    const usage = result.totalArea / result.totalSheetArea * 100;
     ui.metricSheets.textContent = result.sheets.length; ui.metricParts.textContent = result.partCount;
     ui.metricUsage.textContent = `${fmt(usage, 1)}%`; ui.metricWaste.textContent = `${fmt(100 - usage, 1)}%`;
     const elapsed = result.elapsedMs || 0;
@@ -993,16 +1085,22 @@
   }
   function readConfig() {
     const rotationMode = ui.rotations.value;
+    const sheetTypes = [...ui.sheetList.querySelectorAll('.sheet-row')].map(row => ({
+      id: row.dataset.sheetId,
+      width: numberValue(row.querySelector('.sheet-width')),
+      height: numberValue(row.querySelector('.sheet-height')),
+      quantity: Math.trunc(numberValue(row.querySelector('.sheet-quantity')))
+    }));
     const config = {
-      sheetWidth: numberValue(ui.sheetWidth), sheetHeight: numberValue(ui.sheetHeight), partGap: numberValue(ui.partGap), edgeGap: numberValue(ui.edgeGap),
+      sheetTypes, partGap: numberValue(ui.partGap), edgeGap: numberValue(ui.edgeGap),
       rotations: rotationMode === 'free' ? [] : rotationMode.split(',').map(Number), freeRotation: rotationMode === 'free',
-      iterations: Math.trunc(numberValue(ui.iterations)), maxSheets: Math.trunc(numberValue(ui.maxSheets))
+      iterations: Math.trunc(numberValue(ui.iterations))
     };
-    if (!(config.sheetWidth > 0 && config.sheetHeight > 0)) throw new Error(t('invalidSheet'));
+    if (!config.sheetTypes.length || config.sheetTypes.some(type => !(type.width > 0 && type.height > 0))) throw new Error(t('invalidSheet'));
+    if (config.sheetTypes.some(type => !(type.quantity >= 1))) throw new Error(t('invalidSheetQuantity'));
     if (!(config.partGap >= 0 && config.edgeGap >= 0)) throw new Error(t('negativeDistances'));
-    if (config.edgeGap * 2 >= config.sheetWidth || config.edgeGap * 2 >= config.sheetHeight) throw new Error(t('edgeTooLarge'));
+    if (config.sheetTypes.some(type => config.edgeGap * 2 >= type.width || config.edgeGap * 2 >= type.height)) throw new Error(t('edgeTooLarge'));
     if (!(config.iterations >= 1 && config.iterations <= 100)) throw new Error(t('attemptsRange'));
-    if (!(config.maxSheets >= 1)) throw new Error(t('maxSheetsMin'));
     return config;
   }
   async function executeNesting() {
@@ -1047,9 +1145,13 @@
   });
   document.addEventListener('click', e => { if (!ui.languagePicker.contains(e.target)) setLanguageMenu(false); });
   ui.nestButton.addEventListener('click', executeNesting); ui.fitButton.addEventListener('click', fitView);
+  ui.addSheetButton.addEventListener('click', () => {
+    const last = ui.sheetList.lastElementChild;
+    addSheetRow(last ? { width: numberValue(last.querySelector('.sheet-width')), height: numberValue(last.querySelector('.sheet-height')), quantity: 1 } : undefined);
+  });
   ui.exportButton.addEventListener('click', () => state.result && download(createDxf(state.result), `nesting_${new Date().toISOString().slice(0,10)}.dxf`, 'application/dxf'));
   ui.exportReportButton.addEventListener('click', () => state.result && download(createReport(state.result), `relatorio_nesting_${new Date().toISOString().slice(0,10)}.txt`, 'text/plain;charset=utf-8'));
-  [ui.sheetWidth, ui.sheetHeight, ui.partGap, ui.edgeGap, ui.rotations, ui.iterations, ui.maxSheets].forEach(el => el.addEventListener('change', () => { if (state.result) resetResult(); }));
+  [ui.partGap, ui.edgeGap, ui.rotations, ui.iterations].forEach(el => el.addEventListener('change', () => { if (state.result) resetResult(); }));
   ui.canvas.addEventListener('wheel', e => {
     if (!state.result) return; e.preventDefault(); const rect = ui.canvas.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
     const factor = Math.exp(-e.deltaY * .001); const newScale = Math.max(.01, Math.min(100, state.view.scale * factor));
@@ -1061,6 +1163,7 @@
   new ResizeObserver(resizeCanvas).observe(ui.canvasWrap);
   // API somente-leitura usada pelos testes locais e por futuras integrações.
   window.NestDXFCore = Object.freeze({ parseDxf, parseDxfParts, optimize, createDxf, createReport, rotatedShape });
+  addSheetRow({ width: 3000, height: 1500, quantity: 1 });
   applyLanguage(state.language, false);
   resizeCanvas();
 })();
