@@ -64,3 +64,12 @@ No modo **Livre**, os ângulos candidatos são calculados a partir das arestas d
 - `app.js`: parser DXF, geometria, nesting, preview e exportação;
 - `vendor/`: Clipper e utilitários geométricos licenciados, com avisos de licença;
 - `samples/`: arquivos simples para teste.
+
+
+## Aparência
+
+O botão de sol/lua ao lado do idioma alterna os temas claro e escuro. A preferência fica salva em `factorytoolbox-theme`, compartilhada entre as ferramentas no mesmo domínio. Sem escolha salva, o tema acompanha a preferência do sistema. Alterar o tema mantém o projeto e os resultados atuais. A impressão e os arquivos exportados preservam as cores do desenho.
+
+## Licenciamento do código próprio
+
+O código original desta versão tem todos os direitos reservados, conforme `LICENSE`. Esta versão do código próprio não é distribuída sob a licença MIT. As licenças e os avisos de componentes de terceiros são preservados.

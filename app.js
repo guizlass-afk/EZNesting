@@ -985,7 +985,7 @@
         const m1 = toScreen(originX + result.config.edgeGap, sheet.height - result.config.edgeGap), m2 = toScreen(originX + sheet.width - result.config.edgeGap, result.config.edgeGap);
         ctx.save(); ctx.strokeStyle = '#d4dcdf'; ctx.setLineDash([4, 4]); ctx.strokeRect(m1.x, m1.y, m2.x - m1.x, m2.y - m1.y); ctx.restore();
       }
-      const label = toScreen(originX, sheet.height); ctx.fillStyle = '#56666f'; ctx.font = '600 11px system-ui'; ctx.fillText(`${t('sheetUpper')} ${sheetIndex + 1} · ${fmt(sheet.width, 0)} × ${fmt(sheet.height, 0)} mm`, label.x, label.y - 8);
+      const label = toScreen(originX, sheet.height); ctx.fillStyle = document.documentElement.dataset.theme==='dark'?'#b6cbd6':'#56666f'; ctx.font = '600 11px system-ui'; ctx.fillText(`${t('sheetUpper')} ${sheetIndex + 1} · ${fmt(sheet.width, 0)} × ${fmt(sheet.height, 0)} mm`, label.x, label.y - 8);
       sheet.placements.forEach(placed => {
         const color = palette[state.parts.findIndex(p => p.id === placed.part.id) % palette.length];
         ctx.beginPath();
@@ -1160,6 +1160,7 @@
   ui.canvas.addEventListener('pointerdown', e => { if (!state.result) return; state.view.dragging = true; state.view.lastX = e.clientX; state.view.lastY = e.clientY; ui.canvas.setPointerCapture(e.pointerId); ui.canvasWrap.classList.add('dragging'); });
   ui.canvas.addEventListener('pointermove', e => { if (!state.view.dragging) return; state.view.offsetX += e.clientX - state.view.lastX; state.view.offsetY += e.clientY - state.view.lastY; state.view.lastX = e.clientX; state.view.lastY = e.clientY; drawPreview(); });
   ui.canvas.addEventListener('pointerup', e => { state.view.dragging = false; ui.canvas.releasePointerCapture(e.pointerId); ui.canvasWrap.classList.remove('dragging'); });
+  document.addEventListener('themechange',drawPreview);
   new ResizeObserver(resizeCanvas).observe(ui.canvasWrap);
   // API somente-leitura usada pelos testes locais e por futuras integrações.
   window.NestDXFCore = Object.freeze({ parseDxf, parseDxfParts, optimize, createDxf, createReport, rotatedShape });
