@@ -128,6 +128,15 @@
   }
   function numberValue(element) { return Number.parseFloat(element.value); }
   function fmt(value, digits = 1) { return Number(value).toLocaleString(state.language, { maximumFractionDigits: digits }); }
+  function currentUnit() { return document.documentElement.dataset.unit === 'in' ? 'in' : 'mm'; }
+  let displayUnit = currentUnit();
+  function convertUnit(value, from, to) { if (!Number.isFinite(value) || from === to) return value; const mm = from === 'in' ? value * 25.4 : value; return to === 'in' ? mm / 25.4 : mm; }
+  function toMM(value) { return convertUnit(value, displayUnit, 'mm'); }
+  function fromMM(value) { return convertUnit(value, 'mm', displayUnit); }
+  function lengthDigits() { return displayUnit === 'in' ? 3 : 1; }
+  function formatPlain(value) { if (!Number.isFinite(value)) return ''; const digits = displayUnit === 'in' ? 3 : 2; return String(Math.round(value * 10 ** digits) / 10 ** digits); }
+  function formatLengthValue(mm, digits) { return fmt(fromMM(Number(mm)), digits ?? lengthDigits()); }
+  function formatLength(mm, digits) { return `${formatLengthValue(mm, digits)} ${displayUnit}`; }
   function setMessage(text, type = '') { ui.message.textContent = text; ui.message.className = `message ${type}`.trim(); }
   function applyLanguage(language, persist = true) {
     state.language = languageCodes.includes(language) ? language : 'pt-BR';
@@ -920,9 +929,9 @@
       `${t('generatedAt')}: ${result.createdAt.toLocaleString(state.language)}`,
       '',
       `${t('sheetStock')}:`,
-      ...result.config.sheetTypes.map(type => `  ${fmt(type.width)} × ${fmt(type.height)} mm — ${t('quantity')}: ${type.quantity}`),
-      `${t('betweenPieces')}: ${fmt(result.config.partGap)} mm`,
-      `${t('toEdge')}: ${fmt(result.config.edgeGap)} mm`,
+      ...result.config.sheetTypes.map(type => `  ${formatLengthValue(type.width)} × ${formatLengthValue(type.height)} ${displayUnit} — ${t('quantity')}: ${type.quantity}`),
+      `${t('betweenPieces')}: ${formatLength(result.config.partGap)}`,
+      `${t('toEdge')}: ${formatLength(result.config.edgeGap)}`,
       `${translations[state.language].reportRotations ?? t('rotationsAllowed')}: ${result.config.freeRotation ? t('rotFree') : result.config.rotations.map(v => v + '°').join(', ')}`,
       `${t('attempts')}: ${result.iterationsRun ?? result.config.iterations}`,
       `${t('finalValidation')}: ${result.geometryValidated ? t('approved') : t('notRun')}`,
@@ -934,8 +943,8 @@
       ''
     ];
     result.sheets.forEach((sheet, index) => {
-      lines.push(`${t('sheetUpper')} ${index + 1} — ${fmt(sheet.width)} × ${fmt(sheet.height)} mm — ${sheet.placements.length} ${t('pieces').toLocaleLowerCase(state.language)}`);
-      sheet.placements.forEach(p => lines.push(`  ${p.part.name} #${p.instanceNumber} | X=${fmt(p.x, 2)} Y=${fmt(p.y, 2)} | ${t('rotation')}=${p.shape.angle}°`));
+      lines.push(`${t('sheetUpper')} ${index + 1} — ${formatLengthValue(sheet.width)} × ${formatLengthValue(sheet.height)} ${displayUnit} — ${sheet.placements.length} ${t('pieces').toLocaleLowerCase(state.language)}`);
+      sheet.placements.forEach(p => lines.push(`  ${p.part.name} #${p.instanceNumber} | X=${formatLength(p.x)} Y=${formatLength(p.y)} | ${t('rotation')}=${p.shape.angle}°`));
       lines.push('');
     });
     lines.push(t('outerAreaNote'));
@@ -985,7 +994,7 @@
         const m1 = toScreen(originX + result.config.edgeGap, sheet.height - result.config.edgeGap), m2 = toScreen(originX + sheet.width - result.config.edgeGap, result.config.edgeGap);
         ctx.save(); ctx.strokeStyle = '#d4dcdf'; ctx.setLineDash([4, 4]); ctx.strokeRect(m1.x, m1.y, m2.x - m1.x, m2.y - m1.y); ctx.restore();
       }
-      const label = toScreen(originX, sheet.height); ctx.fillStyle = document.documentElement.dataset.theme==='dark'?'#b6cbd6':'#56666f'; ctx.font = '600 11px system-ui'; ctx.fillText(`${t('sheetUpper')} ${sheetIndex + 1} · ${fmt(sheet.width, 0)} × ${fmt(sheet.height, 0)} mm`, label.x, label.y - 8);
+      const label = toScreen(originX, sheet.height); ctx.fillStyle = document.documentElement.dataset.theme==='dark'?'#b6cbd6':'#56666f'; ctx.font = '600 11px system-ui'; ctx.fillText(`${t('sheetUpper')} ${sheetIndex + 1} · ${formatLengthValue(sheet.width, 0)} × ${formatLengthValue(sheet.height, 0)} ${displayUnit}`, label.x, label.y - 8);
       sheet.placements.forEach(placed => {
         const color = palette[state.parts.findIndex(p => p.id === placed.part.id) % palette.length];
         ctx.beginPath();
@@ -1050,8 +1059,8 @@
     const row = document.createElement('div');
     row.className = 'sheet-row';
     row.dataset.sheetId = `sheet-${state.nextSheetId++}`;
-    const width = Number(values.width) > 0 ? Number(values.width) : 3000;
-    const height = Number(values.height) > 0 ? Number(values.height) : 1500;
+    const width = formatPlain(Number(values.width) > 0 ? Number(values.width) : fromMM(3000));
+    const height = formatPlain(Number(values.height) > 0 ? Number(values.height) : fromMM(1500));
     const quantity = Number(values.quantity) > 0 ? Math.trunc(Number(values.quantity)) : 1;
     row.innerHTML = `<label><span data-i18n="sheetWidth">${escapeHtml(t('sheetWidth'))}</span><input class="sheet-width" type="number" value="${width}" min="1" step="1"></label><label><span data-i18n="sheetLength">${escapeHtml(t('sheetLength'))}</span><input class="sheet-height" type="number" value="${height}" min="1" step="1"></label><label><span data-i18n="quantity">${escapeHtml(t('quantity'))}</span><input class="sheet-quantity" type="number" value="${quantity}" min="1" max="999" step="1"></label><button class="remove-sheet" type="button" title="${escapeHtml(t('removeSheet'))}">×</button>`;
     row.querySelectorAll('input').forEach(input => input.addEventListener('change', () => { if (state.result) resetResult(); }));
@@ -1087,12 +1096,12 @@
     const rotationMode = ui.rotations.value;
     const sheetTypes = [...ui.sheetList.querySelectorAll('.sheet-row')].map(row => ({
       id: row.dataset.sheetId,
-      width: numberValue(row.querySelector('.sheet-width')),
-      height: numberValue(row.querySelector('.sheet-height')),
+      width: toMM(numberValue(row.querySelector('.sheet-width'))),
+      height: toMM(numberValue(row.querySelector('.sheet-height'))),
       quantity: Math.trunc(numberValue(row.querySelector('.sheet-quantity')))
     }));
     const config = {
-      sheetTypes, partGap: numberValue(ui.partGap), edgeGap: numberValue(ui.edgeGap),
+      sheetTypes, partGap: toMM(numberValue(ui.partGap)), edgeGap: toMM(numberValue(ui.edgeGap)),
       rotations: rotationMode === 'free' ? [] : rotationMode.split(',').map(Number), freeRotation: rotationMode === 'free',
       iterations: Math.trunc(numberValue(ui.iterations))
     };
@@ -1162,9 +1171,20 @@
   ui.canvas.addEventListener('pointerup', e => { state.view.dragging = false; ui.canvas.releasePointerCapture(e.pointerId); ui.canvasWrap.classList.remove('dragging'); });
   document.addEventListener('themechange',drawPreview);
   new ResizeObserver(resizeCanvas).observe(ui.canvasWrap);
+  function convertDisplayedLengthInputs(prevUnit, nextUnit) {
+    if (prevUnit === nextUnit) return;
+    const convert = el => { const v = numberValue(el); if (Number.isFinite(v)) el.value = formatPlain(convertUnit(v, prevUnit, nextUnit)); };
+    convert(ui.partGap); convert(ui.edgeGap);
+    ui.sheetList.querySelectorAll('.sheet-width,.sheet-height').forEach(convert);
+  }
+  document.addEventListener('unitchange', e => {
+    const next = e.detail.unit, prev = displayUnit; if (next === prev) return;
+    displayUnit = next; convertDisplayedLengthInputs(prev, next); drawPreview();
+  });
+  [ui.partGap, ui.edgeGap].forEach(el => { el.value = formatPlain(fromMM(numberValue(el))); });
   // API somente-leitura usada pelos testes locais e por futuras integrações.
-  window.NestDXFCore = Object.freeze({ parseDxf, parseDxfParts, optimize, createDxf, createReport, rotatedShape });
-  addSheetRow({ width: 3000, height: 1500, quantity: 1 });
+  window.NestDXFCore = Object.freeze({ parseDxf, parseDxfParts, optimize, createDxf, createReport, rotatedShape, convertUnit, formatLength, formatLengthValue });
+  addSheetRow({ width: fromMM(3000), height: fromMM(1500), quantity: 1 });
   applyLanguage(state.language, false);
   resizeCanvas();
 })();

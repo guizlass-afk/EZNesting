@@ -177,7 +177,23 @@ LWPOLYLINE
         if (appFrame.contentDocument.documentElement.dir !== 'rtl') throw new Error('Direção RTL do árabe inválida');
         languageSelect.value = 'pt-BR'; languageSelect.dispatchEvent(new Event('change'));
         if (!brazilFlag.getAttribute('src').endsWith('flags/br.svg')) throw new Error('Bandeira do Brasil não foi restaurada');
-        log.push(`Nesting: OK (${result.partCount} peças / ${result.sheets.length} chapa)`, 'Estoque misto e quantidades: OK', `Rotação livre: OK`, `Exportação e reabertura: OK (${dxf.length} caracteres)`, 'Idiomas e bandeiras: OK (12 opções)');
+
+        const appWin = appFrame.contentWindow, appDoc = appFrame.contentDocument;
+        if (appDoc.documentElement.dataset.unit !== 'mm') throw new Error('Unidade padrão não é mm');
+        if (Math.abs(core.convertUnit(25.4, 'mm', 'in') - 1) > 1e-9 || Math.abs(core.convertUnit(1, 'in', 'mm') - 25.4) > 1e-9) throw new Error('Conversão mm/in incorreta');
+        const unitToggle = appDoc.getElementById('unitToggle'); if (!unitToggle) throw new Error('Alternador de unidade não encontrado');
+        const partGapMm = Number(appDoc.getElementById('partGap').value), sheetWidthMm = Number(sheetList.querySelector('.sheet-width').value);
+        unitToggle.click();
+        if (appDoc.documentElement.dataset.unit !== 'in') throw new Error('Alternância para polegadas falhou');
+        if (appWin.localStorage.getItem('eznesting-unit') !== 'in') throw new Error('Preferência de unidade não foi persistida');
+        if (Math.abs(Number(appDoc.getElementById('partGap').value) - partGapMm / 25.4) > 0.01) throw new Error('Folga entre peças não converteu para polegadas');
+        if (Math.abs(Number(sheetList.querySelector('.sheet-width').value) - sheetWidthMm / 25.4) > 0.01) throw new Error('Largura da chapa não converteu para polegadas');
+        unitToggle.click();
+        if (appDoc.documentElement.dataset.unit !== 'mm' || appWin.localStorage.getItem('eznesting-unit') !== 'mm') throw new Error('Alternância de volta para milímetros falhou');
+        if (Math.abs(Number(appDoc.getElementById('partGap').value) - partGapMm) > 0.05) throw new Error('Ida e volta mm→in→mm perdeu precisão da folga entre peças');
+        if (Math.abs(Number(sheetList.querySelector('.sheet-width').value) - sheetWidthMm) > 0.05) throw new Error('Ida e volta mm→in→mm perdeu precisão da largura da chapa');
+
+        log.push(`Nesting: OK (${result.partCount} peças / ${result.sheets.length} chapa)`, 'Estoque misto e quantidades: OK', `Rotação livre: OK`, `Exportação e reabertura: OK (${dxf.length} caracteres)`, 'Idiomas e bandeiras: OK (12 opções)', 'Alternador métrico/imperial: OK');
         document.getElementById('status').textContent = 'PASS';
       } catch (error) {
         document.getElementById('status').textContent = 'FAIL'; log.push(error.stack || error.message);
