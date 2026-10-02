@@ -203,72 +203,7 @@
     }
     if (current) records.push(current);
 
-    const paths = [];
-    const val = (rec, code, fallback = 0) => {
-      const p = rec.pairs.find(x => x.code === code);
-      const n = Number.parseFloat(p?.value);
-      return Number.isFinite(n) ? n : fallback;
-    };
-    const flag = (rec, code) => Math.trunc(val(rec, code, 0));
-
-    for (let i = 0; i < records.length; i++) {
-      const rec = records[i];
-      if (rec.type === 'LINE') {
-        paths.push({ points: [{ x: val(rec, 10), y: val(rec, 20) }, { x: val(rec, 11), y: val(rec, 21) }], closed: false });
-      } else if (rec.type === 'LWPOLYLINE') {
-        const vertices = [];
-        let vertex = null;
-        for (const p of rec.pairs) {
-          if (p.code === 10) { if (vertex) vertices.push(vertex); vertex = { x: +p.value, y: 0, bulge: 0 }; }
-          else if (p.code === 20 && vertex) vertex.y = +p.value;
-          else if (p.code === 42 && vertex) vertex.bulge = +p.value;
-        }
-        if (vertex) vertices.push(vertex);
-        const closed = (flag(rec, 70) & 1) !== 0;
-        const points = expandBulges(vertices, closed);
-        if (points.length > 1) paths.push({ points, closed });
-      } else if (rec.type === 'POLYLINE') {
-        const vertices = [];
-        const closed = (flag(rec, 70) & 1) !== 0;
-        while (records[i + 1]?.type === 'VERTEX') {
-          const vr = records[++i];
-          vertices.push({ x: val(vr, 10), y: val(vr, 20), bulge: val(vr, 42) });
-        }
-        if (records[i + 1]?.type === 'SEQEND') i++;
-        const points = expandBulges(vertices, closed);
-        if (points.length > 1) paths.push({ points, closed });
-      } else if (rec.type === 'CIRCLE') {
-        const cx = val(rec, 10), cy = val(rec, 20), r = Math.abs(val(rec, 40));
-        if (r > 0) paths.push({ points: sampleArc(cx, cy, r, 0, Math.PI * 2), closed: true });
-      } else if (rec.type === 'ARC') {
-        const cx = val(rec, 10), cy = val(rec, 20), r = Math.abs(val(rec, 40));
-        let a0 = degToRad(val(rec, 50)), a1 = degToRad(val(rec, 51));
-        while (a1 <= a0) a1 += Math.PI * 2;
-        if (r > 0) paths.push({ points: sampleArc(cx, cy, r, a0, a1), closed: false });
-      } else if (rec.type === 'ELLIPSE') {
-        const cx = val(rec, 10), cy = val(rec, 20), mx = val(rec, 11), my = val(rec, 21);
-        const ratio = Math.abs(val(rec, 40, 1)), t0 = val(rec, 41, 0), t1raw = val(rec, 42, Math.PI * 2);
-        let t1 = t1raw; while (t1 <= t0) t1 += Math.PI * 2;
-        const count = Math.max(16, Math.ceil((t1 - t0) / (Math.PI / 36)));
-        const points = [];
-        for (let j = 0; j <= count; j++) {
-          const t = t0 + (t1 - t0) * j / count;
-          points.push({ x: cx + mx * Math.cos(t) - my * ratio * Math.sin(t), y: cy + my * Math.cos(t) + mx * ratio * Math.sin(t) });
-        }
-        const closed = Math.abs((t1 - t0) - Math.PI * 2) < .01;
-        if (closed) points.pop();
-        paths.push({ points, closed });
-      } else if (rec.type === 'SPLINE') {
-        const points = [];
-        let point = null;
-        for (const p of rec.pairs) {
-          if (p.code === 10) { if (point) points.push(point); point = { x: +p.value, y: 0 }; }
-          else if (p.code === 20 && point) point.y = +p.value;
-        }
-        if (point) points.push(point);
-        if (points.length > 1) paths.push({ points, closed: (flag(rec, 70) & 1) !== 0 });
-      }
-    }
+    const paths = DxfGeometry.parseRecords(records);
     if (!paths.length) throw new Error(t('noGeometry'));
 
     return splitDxfParts(paths, filename);
@@ -279,46 +214,6 @@
   }
 
   function degToRad(v) { return v * Math.PI / 180; }
-  function sampleArc(cx, cy, radius, start, end) {
-    const steps = Math.max(8, Math.ceil(Math.abs(end - start) / (Math.PI / 36)));
-    const points = [];
-    for (let i = 0; i <= steps; i++) {
-      const a = start + (end - start) * i / steps;
-      points.push({ x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
-    }
-    if (Math.abs((end - start) - Math.PI * 2) < .001) points.pop();
-    return points;
-  }
-
-  function expandBulges(vertices, closed) {
-    if (vertices.length < 2) return vertices.map(v => ({ x: v.x, y: v.y }));
-    const result = [];
-    const count = closed ? vertices.length : vertices.length - 1;
-    for (let i = 0; i < count; i++) {
-      const a = vertices[i], b = vertices[(i + 1) % vertices.length];
-      result.push({ x: a.x, y: a.y });
-      const bulge = Number.isFinite(a.bulge) ? a.bulge : 0;
-      if (Math.abs(bulge) > 1e-9) {
-        const dx = b.x - a.x, dy = b.y - a.y, chord = Math.hypot(dx, dy);
-        if (chord > 1e-9) {
-          const theta = 4 * Math.atan(bulge);
-          const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;
-          const d = chord * (1 - bulge * bulge) / (4 * bulge);
-          const cx = midX - dy / chord * d, cy = midY + dx / chord * d;
-          const start = Math.atan2(a.y - cy, a.x - cx);
-          const steps = Math.max(2, Math.ceil(Math.abs(theta) / (Math.PI / 36)));
-          for (let s = 1; s < steps; s++) {
-            const angle = start + theta * s / steps;
-            const radius = Math.hypot(a.x - cx, a.y - cy);
-            result.push({ x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) });
-          }
-        }
-      }
-    }
-    if (!closed) result.push({ x: vertices.at(-1).x, y: vertices.at(-1).y });
-    return cleanPoints(result);
-  }
-
   function stitchConnectedPaths(paths) {
     const ready = paths.filter(path => path.closed || path.points.length < 2).map(path => ({ ...path, points: cleanPoints(path.points) }));
     const pending = paths.filter(path => !path.closed && path.points.length >= 2).map(path => ({ ...path, points: cleanPoints(path.points) }));
@@ -330,6 +225,7 @@
     while (pending.length) {
       const seed = pending.shift();
       const chain = [...seed.points];
+      const sourceEntities = [...(seed.sourceEntities || [])];
       let changed = true;
       while (changed && pending.length) {
         changed = false;
@@ -341,11 +237,12 @@
           else if (close(start, last)) chain.unshift(...candidate.points.slice(0, -1));
           else if (close(start, first)) chain.unshift(...[...candidate.points].reverse().slice(0, -1));
           else continue;
+          sourceEntities.push(...(candidate.sourceEntities || []));
           pending.splice(i, 1); changed = true; break;
         }
       }
       const closed = chain.length >= 3 && close(chain[0], chain.at(-1));
-      ready.push({ points: cleanPoints(chain), closed });
+      ready.push({ points: cleanPoints(chain), closed, sourceEntities });
     }
     return ready.filter(path => path.points.length >= 2);
   }
@@ -408,13 +305,15 @@
     const finalBox = bounds(normalizedOutline), baseName = filename.replace(/\.dxf$/i, '');
     // O proxy de nesting não precisa carregar centenas de pontos de SPLINE.
     // O erro conhecido é somado à folga nas colisões, preservando o contorno
-    // completo para a validação e para o DXF exportado.
+    // amostrado para validação. A exportação usa sourceEntities, sem esse proxy.
     const nestingTolerance = Math.max(0.08, Math.min(2, Math.hypot(finalBox.width, finalBox.height) * 0.0012));
     const nestingOutline = simplifyClosedPolygon(normalizedOutline, nestingTolerance);
     return {
       id: state.nextId++, name: pieceCount > 1 ? `${baseName} — peça ${pieceIndex + 1}` : baseName,
       filename, sourceIndex: pieceIndex, sourceKey: `${filename.toLowerCase()}::${pieceIndex}`, quantity: 1,
-      paths: normalizedPaths, outline: normalizedOutline, nestingOutline, nestingTolerance,
+      sourceEntities: paths.flatMap(path => path.sourceEntities || []),
+      sourceOrigin: { x: box.minX, y: box.minY },
+      paths: normalizedPaths, outline: normalizedOutline, nestingOutline, nestingTolerance: nestingTolerance + DxfGeometry.tolerance,
       width: finalBox.width, height: finalBox.height, area: Math.abs(polygonArea(normalizedOutline)), cache: new Map()
     };
   }
@@ -540,6 +439,7 @@
       angle: key, partId: part.id, outline: rawOutline.map(shift),
       fullOutline: rawFullOutline.map(shift), tolerance: part.nestingTolerance || 0,
       paths: part.paths.map(path => ({ closed: path.closed, points: path.points.map(rotate).map(shift) })),
+      sourceTransform: { angle: key, x: -(part.sourceOrigin?.x || 0) * cos + (part.sourceOrigin?.y || 0) * sin - box.minX, y: -(part.sourceOrigin?.x || 0) * sin - (part.sourceOrigin?.y || 0) * cos - box.minY },
       width: box.width, height: box.height
     };
     part.cache.set(key, shape); return shape;
@@ -870,56 +770,75 @@
   }
 
   // ---------- DXF writer ----------
-  function dxfNumber(value) { return Math.abs(value) < 1e-10 ? '0' : Number(value.toFixed(6)).toString(); }
+  function dxfNumber(value) { if (!Number.isFinite(value)) throw new Error('DXF: non-finite coordinate.'); return Number(value.toPrecision(15)).toString(); }
   function safeLayer(name) { return ('P_' + name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 31); }
   function createDxf(result) {
-    const out = [];
-    const pair = (code, value) => { out.push(String(code), String(value)); };
+    const out = [], pair = (code, value) => out.push(String(code), typeof value === 'number' ? dxfNumber(value) : String(value));
     const layout = previewLayout(result), spacing = layout.spacing;
-    const drawingWidth = layout.width;
-    const drawingHeight = layout.height + spacing * .5;
-
-    // DXF R12 ASCII usa entidades POLYLINE/VERTEX e é aceito por leitores
-    // mais rígidos, incluindo SolidWorks e eDrawings.
-    pair(0, 'SECTION'); pair(2, 'HEADER');
-    pair(9, '$ACADVER'); pair(1, 'AC1009');
-    pair(9, '$MEASUREMENT'); pair(70, 1);
-    pair(9, '$EXTMIN'); pair(10, 0); pair(20, 0); pair(30, 0);
-    pair(9, '$EXTMAX'); pair(10, dxfNumber(drawingWidth)); pair(20, dxfNumber(drawingHeight)); pair(30, 0);
-    pair(0, 'ENDSEC');
-
-    const resultLayers = result.sheets.flatMap(sheet => sheet.placements.map(placed => safeLayer(placed.part.name)));
-    const layers = ['0', 'CHAPAS', 'MARGENS', ...new Set(resultLayers)];
-    pair(0, 'SECTION'); pair(2, 'TABLES');
-    pair(0, 'TABLE'); pair(2, 'LTYPE'); pair(70, 1);
-    pair(0, 'LTYPE'); pair(2, 'CONTINUOUS'); pair(70, 0); pair(3, 'Solid line'); pair(72, 65); pair(73, 0); pair(40, 0);
-    pair(0, 'ENDTAB');
-    pair(0, 'TABLE'); pair(2, 'LAYER'); pair(70, layers.length);
-    layers.forEach((layer, i) => { pair(0, 'LAYER'); pair(2, layer); pair(70, 0); pair(62, i === 1 ? 8 : i === 2 ? 9 : ((i * 2) % 7) + 1); pair(6, 'CONTINUOUS'); });
-    pair(0, 'ENDTAB'); pair(0, 'ENDSEC');
-    pair(0, 'SECTION'); pair(2, 'BLOCKS'); pair(0, 'ENDSEC');
-    pair(0, 'SECTION'); pair(2, 'ENTITIES');
-    const polyline = (points, closed, layer) => {
-      if (points.length < 2) return;
-      pair(0, 'POLYLINE'); pair(8, layer); pair(66, 1); pair(10, 0); pair(20, 0); pair(30, 0); pair(70, closed ? 1 : 0);
-      for (const p of points) {
-        pair(0, 'VERTEX'); pair(8, layer); pair(10, dxfNumber(p.x)); pair(20, dxfNumber(p.y)); pair(30, 0); pair(70, 0);
-      }
-      pair(0, 'SEQEND'); pair(8, layer);
+    let nextHandle = 0x100;
+    const handle = () => (nextHandle++).toString(16).toUpperCase();
+    const tables = { ltype: handle(), layer: handle(), style: handle(), block: handle() };
+    const model = handle(), paper = handle(), rootDictionary = handle(), layoutDictionary = handle(), modelLayout = handle(), paperLayout = handle();
+    // R2000 preserves native SPLINE, ELLIPSE and LWPOLYLINE; R12 cannot.
+    pair(0,'SECTION');pair(2,'HEADER');pair(9,'$ACADVER');pair(1,'AC1015');
+    pair(9,'$INSUNITS');pair(70,4);pair(9,'$MEASUREMENT');pair(70,1);
+    pair(9,'$EXTMIN');pair(10,0);pair(20,0);pair(30,0);
+    pair(9,'$EXTMAX');pair(10,layout.width);pair(20,layout.height+spacing*.5);pair(30,0);pair(0,'ENDSEC');
+    pair(0,'SECTION');pair(2,'TABLES');
+    const table = (name,id,count) => {pair(0,'TABLE');pair(2,name);pair(5,id);pair(330,'0');pair(100,'AcDbSymbolTable');pair(70,count);};
+    const record = (type,owner,subclass,id=handle()) => {pair(0,type);pair(5,id);pair(330,owner);pair(100,'AcDbSymbolTableRecord');pair(100,subclass);};
+    table('LTYPE',tables.ltype,1);record('LTYPE',tables.ltype,'AcDbLinetypeTableRecord');pair(2,'CONTINUOUS');pair(70,0);pair(3,'Solid line');pair(72,65);pair(73,0);pair(40,0);pair(0,'ENDTAB');
+    const layers=['0','CHAPAS','MARGENS',...new Set(result.sheets.flatMap(sheet=>sheet.placements.map(p=>safeLayer(p.part.name))))];
+    table('LAYER',tables.layer,layers.length);
+    layers.forEach((layer,i)=>{record('LAYER',tables.layer,'AcDbLayerTableRecord');pair(2,layer);pair(70,0);pair(62,i===1?8:i===2?9:((i*2)%7)+1);pair(6,'CONTINUOUS');});pair(0,'ENDTAB');
+    table('STYLE',tables.style,1);record('STYLE',tables.style,'AcDbTextStyleTableRecord');pair(2,'STANDARD');pair(70,0);pair(40,0);pair(41,1);pair(50,0);pair(71,0);pair(42,2.5);pair(3,'txt');pair(4,'');pair(0,'ENDTAB');
+    table('BLOCK_RECORD',tables.block,2);
+    for(const [id,name] of [[model,'*Model_Space'],[paper,'*Paper_Space']]){record('BLOCK_RECORD',tables.block,'AcDbBlockTableRecord',id);pair(2,name);pair(340,id===model?modelLayout:paperLayout);}
+    pair(0,'ENDTAB');pair(0,'ENDSEC');
+    const entity=(type,layer,subclass,owner=model)=>{const id=handle();pair(0,type);pair(5,id);pair(330,owner);pair(100,'AcDbEntity');pair(8,layer);if(subclass)pair(100,subclass);return id;};
+    pair(0,'SECTION');pair(2,'BLOCKS');
+    for(const [id,name] of [[model,'*Model_Space'],[paper,'*Paper_Space']]){
+      entity('BLOCK','0','AcDbBlockBegin',id);pair(2,name);pair(70,0);pair(10,0);pair(20,0);pair(30,0);pair(3,name);pair(1,'');entity('ENDBLK','0','AcDbBlockEnd',id);
+    }
+    pair(0,'ENDSEC');pair(0,'SECTION');pair(2,'ENTITIES');
+    const writeOriginal=(e,layer,owner=model)=>{
+      const subclass={LINE:'AcDbLine',CIRCLE:'AcDbCircle',ARC:'AcDbCircle',ELLIPSE:'AcDbEllipse',SPLINE:'AcDbSpline',LWPOLYLINE:'AcDbPolyline',POLYLINE:'AcDb2dPolyline',VERTEX:'AcDbVertex'}[e.type];
+      const id=entity(e.type,layer,subclass,owner);
+      if(e.type==='VERTEX')pair(100,'AcDb2dVertex');
+      if(e.type==='POLYLINE'&&!e.pairs.some(p=>p.code===66))pair(66,1);
+      for(const p of e.pairs)if(e.type!=='ARC'||(p.code!==50&&p.code!==51))pair(p.code,p.value);
+      if(e.type==='ARC'){pair(100,'AcDbArc');for(const code of [50,51])pair(code,e.pairs.find(p=>p.code===code)?.value??0);}
+      if(e.vertices){for(const vertex of e.vertices)writeOriginal(vertex,layer,id);entity('SEQEND',layer,null,id);}
     };
-    result.sheets.forEach((sheet, index) => {
-      const ox = layout.offsets[index];
-      polyline([{x:ox,y:0},{x:ox+sheet.width,y:0},{x:ox+sheet.width,y:sheet.height},{x:ox,y:sheet.height}], true, 'CHAPAS');
-      const m = result.config.edgeGap;
-      if (m > 0 && m * 2 < sheet.width && m * 2 < sheet.height) polyline([{x:ox+m,y:m},{x:ox+sheet.width-m,y:m},{x:ox+sheet.width-m,y:sheet.height-m},{x:ox+m,y:sheet.height-m}], true, 'MARGENS');
-      for (const placed of sheet.placements) {
-        const layer = safeLayer(placed.part.name);
-        for (const path of placed.shape.paths) polyline(path.points.map(p => ({ x: p.x + placed.x + ox, y: p.y + placed.y })), path.closed, layer);
+    const polyline=(points,layer)=>{
+      entity('LWPOLYLINE',layer,'AcDbPolyline');pair(90,points.length);pair(70,1);
+      for(const p of points){pair(10,p.x);pair(20,p.y);}
+    };
+    result.sheets.forEach((sheet,index)=>{
+      const ox=layout.offsets[index];
+      polyline([{x:ox,y:0},{x:ox+sheet.width,y:0},{x:ox+sheet.width,y:sheet.height},{x:ox,y:sheet.height}],'CHAPAS');
+      const m=result.config.edgeGap;
+      if(m>0&&m*2<sheet.width&&m*2<sheet.height)polyline([{x:ox+m,y:m},{x:ox+sheet.width-m,y:m},{x:ox+sheet.width-m,y:sheet.height-m},{x:ox+m,y:sheet.height-m}],'MARGENS');
+      for(const placed of sheet.placements){
+        const source=placed.part.sourceEntities,base=placed.shape.sourceTransform;
+        if(!source?.length||!base)throw new Error('DXF: original entities missing; reimport the source file before exporting.');
+        const transform={angle:base.angle,x:base.x+placed.x+ox,y:base.y+placed.y};
+        for(const original of source)writeOriginal(DxfGeometry.transformEntity(original,transform),safeLayer(placed.part.name));
       }
-      pair(0, 'TEXT'); pair(8, 'CHAPAS'); pair(10, dxfNumber(ox)); pair(20, dxfNumber(sheet.height + spacing * .25)); pair(30, 0); pair(40, dxfNumber(Math.max(10, Math.min(40, spacing * .18)))); pair(1, `CHAPA ${index + 1} - ${dxfNumber(sheet.width)} x ${dxfNumber(sheet.height)} mm`); pair(50, 0);
+      entity('TEXT','CHAPAS','AcDbText');pair(10,ox);pair(20,sheet.height+spacing*.25);pair(30,0);pair(40,Math.max(10,Math.min(40,spacing*.18)));pair(1,`CHAPA ${index+1} - ${dxfNumber(sheet.width)} x ${dxfNumber(sheet.height)} mm`);pair(50,0);pair(7,'STANDARD');pair(100,'AcDbText');
     });
-    pair(0, 'ENDSEC'); pair(0, 'EOF');
-    return out.join('\r\n') + '\r\n';
+    pair(0,'ENDSEC');pair(0,'SECTION');pair(2,'OBJECTS');
+    pair(0,'DICTIONARY');pair(5,rootDictionary);pair(330,'0');pair(100,'AcDbDictionary');pair(280,0);pair(281,1);pair(3,'ACAD_LAYOUT');pair(350,layoutDictionary);
+    pair(0,'DICTIONARY');pair(5,layoutDictionary);pair(330,rootDictionary);pair(100,'AcDbDictionary');pair(280,0);pair(281,1);pair(3,'Model');pair(350,modelLayout);pair(3,'Layout1');pair(350,paperLayout);
+    for(const [id,block,name,order] of [[modelLayout,model,'Model',0],[paperLayout,paper,'Layout1',1]]){
+      pair(0,'LAYOUT');pair(5,id);pair(330,layoutDictionary);pair(100,'AcDbPlotSettings');pair(1,'');pair(4,'A3');pair(6,'');
+      for(const code of [40,41,42,43,46,47,48,49,140,141])pair(code,0);
+      pair(44,420);pair(45,297);pair(142,1);pair(143,1);pair(70,order===0?1024:0);pair(72,1);pair(73,0);pair(74,5);pair(7,'');pair(75,16);pair(76,0);pair(77,2);pair(78,300);pair(147,1);pair(148,0);pair(149,0);
+      pair(100,'AcDbLayout');pair(1,name);pair(70,1);pair(71,order);pair(10,0);pair(20,0);pair(11,layout.width);pair(21,layout.height);
+      for(const code of [12,22,32,14,24,34,13,23,33])pair(code,0);
+      pair(15,layout.width);pair(25,layout.height);pair(35,0);pair(146,0);pair(16,1);pair(26,0);pair(36,0);pair(17,0);pair(27,1);pair(37,0);pair(76,1);pair(330,block);
+    }
+    pair(0,'ENDSEC');pair(0,'EOF');return out.join('\r\n')+'\r\n';
   }
 
   function createReport(result) {

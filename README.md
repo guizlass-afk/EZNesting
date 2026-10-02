@@ -25,9 +25,9 @@ Um mesmo DXF pode conter várias peças. O programa identifica os contornos exte
 - `LINE`, `ARC`, `CIRCLE`, `ELLIPSE` e `SPLINE`;
 - unidades em milímetros (os valores numéricos do DXF são mantidos).
 
-As curvas são discretizadas com precisão adaptativa no arquivo de saída. Para nesting, o maior contorno fechado de cada arquivo é considerado o limite externo da peça; os demais contornos são mantidos na exportação como furos ou detalhes internos.
+As curvas são amostradas apenas para calcular e visualizar o nesting. O DXF de saída utiliza as entidades originais de cada peça: linhas, arcos, círculos, elipses, splines e polilinhas com seus bulges. São aplicadas somente a rotação e a translação do posicionamento, sem simplificação ou conversão da curva em segmentos retos. Os contornos externos desconectados definem as peças; furos e detalhes associados continuam vinculados a elas.
 
-O arquivo exportado usa **DXF R12 ASCII**, entidades `POLYLINE`/`VERTEX` e tabelas completas de layer e tipo de linha. Essa estrutura prioriza compatibilidade com SolidWorks, eDrawings e leitores CAD mais rígidos.
+O arquivo exportado usa **DXF R2000 ASCII (AC1015)**, com entidades nativas e estrutura de layers, tipos de linha, blocos e layouts. O R12 não representa `SPLINE` e `ELLIPSE` nativas. Raios, bulges, grau, nós e pesos de splines são mantidos; pontos de controle e de ajuste recebem o posicionamento, enquanto vetores de eixo e tangentes recebem apenas a rotação. Handles são recriados e as entidades são organizadas em layers por peça; o arquivo não é uma cópia byte a byte do documento original.
 
 ## Estratégia de otimização
 
@@ -45,12 +45,13 @@ Durante o cálculo, uma barra mostra o avanço por tentativa e por peça. O proc
 - Vários contatos válidos por rotação são comparados por área ocupada, em vez de aceitar o primeiro encaixe.
 - Ordenações repetidas foram substituídas por tentativas realmente distintas.
 - A busca encerra quando novas tentativas deixam de melhorar a solução ou quando atinge o menor número de chapas matematicamente possível pela área.
-- Antes de liberar o resultado, todas as posições são validadas novamente contra os contornos originais completos e a folga configurada.
+- Antes de liberar o resultado, as posições são validadas contra os contornos amostrados completos, sem a simplificação de busca, e a folga configurada. A amostragem de curvas tem alvo de desvio de 0,01 mm, incluído na margem usada pela busca; não substitui a geometria nativa da saída.
 
 No modo **Livre**, os ângulos candidatos são calculados a partir das arestas do contorno de cada peça. Rotações geometricamente equivalentes são eliminadas para manter a otimização rápida.
 
 ## Limitações desta versão
 
+- Curvas devem ser paralelas ao plano XY. Splines precisam de pontos de controle, vetor de nós e pesos positivos válidos; splines somente com pontos de ajuste e polilinhas antigas ajustadas/suavizadas devem ser reexportadas como curvas nativas suportadas no CAD. Esses casos não são convertidos silenciosamente em linhas.
 - DXF binário não é aceito; salve como **DXF ASCII** no CAD.
 - Blocos (`INSERT`) e textos não definem a geometria da peça.
 - O algoritmo é heurístico: encontra soluções boas, mas não garante o ótimo matemático global.
@@ -61,7 +62,8 @@ No modo **Livre**, os ângulos candidatos são calculados a partir das arestas d
 
 - `index.html`: interface principal;
 - `styles.css`: aparência da aplicação;
-- `app.js`: parser DXF, geometria, nesting, preview e exportação;
+- `app.js`: leitura do documento, separação de peças, nesting, preview e exportação;
+- `dxf-geometry.js`: entidades originais, amostragem NURBS e transformações geométricas;
 - `vendor/`: Clipper e utilitários geométricos licenciados, com avisos de licença;
 - `samples/`: arquivos simples para teste.
 
@@ -73,3 +75,16 @@ O botão de sol/lua ao lado do idioma alterna os temas claro e escuro. A prefer�
 ## Licenciamento do código próprio
 
 O código original desta versão tem todos os direitos reservados, conforme `LICENSE`. Esta versão do código próprio não é distribuída sob a licença MIT. As licenças e os avisos de componentes de terceiros são preservados.
+
+## Testes de fidelidade do DXF
+
+Abra `tests/browser-tests.html` por um servidor HTTP local para a suíte do aplicativo. A regressão independente usa Python, Playwright, Google Chrome e ezdxf:
+
+```powershell
+python -m pip install -r tests/requirements.txt
+python tests/test_curve_export.py
+```
+
+A regressão reabre o DXF no ezdxf e compara as entidades com transformações calculadas independentemente, em 0°, 37°, 90° e 270°, com quatro chapas e coordenadas de origem deslocadas. Verifica bulges positivos/negativos, orientação OCS negativa, nós/pesos/tangentes/pontos de ajuste de splines, raio/ângulos de arcos, eixos de elipses, preservação após unir caminhos, integridade dos dados de origem e o fluxo completo do otimizador. Também corrompe intencionalmente a cópia poligonal de visualização para comprovar que ela não é usada na exportação.
+
+Referência de códigos DXF: [Autodesk — SPLINE](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm).
