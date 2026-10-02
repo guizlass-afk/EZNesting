@@ -133,6 +133,7 @@ LWPOLYLINE
         if (result.partCount !== 12 || result.sheets.length < 1) throw new Error('Resultado do nesting inválido');
         if (progress.length < 2 || progress.at(-1) !== 1) throw new Error('Progresso assíncrono inválido');
         if (!result.geometryValidated) throw new Error('Validação geométrica final não executada');
+        if (result.sheets.some(sheet => sheet.placements.some(p => ![0,90].includes(p.shape.angle)))) throw new Error('Rotação não autorizada em pares');
         const dxf = core.createDxf(result);
         if (!dxf.includes('AC1015') || !dxf.includes('LWPOLYLINE') || !dxf.includes('AcDbPolyline') || !dxf.includes('BLOCK_RECORD') || !dxf.includes('LTYPE') || !dxf.endsWith('EOF\r\n')) throw new Error('Exportação DXF R2000 inválida');
         const dxfLines = dxf.trimEnd().split(/\r?\n/);

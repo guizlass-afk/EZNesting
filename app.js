@@ -312,6 +312,7 @@
       id: state.nextId++, name: pieceCount > 1 ? `${baseName} — peça ${pieceIndex + 1}` : baseName,
       filename, sourceIndex: pieceIndex, sourceKey: `${filename.toLowerCase()}::${pieceIndex}`, quantity: 1,
       sourceEntities: paths.flatMap(path => path.sourceEntities || []),
+      outlineEntities: paths.find(path => path.points === outline)?.sourceEntities || [],
       sourceOrigin: { x: box.minX, y: box.minY },
       paths: normalizedPaths, outline: normalizedOutline, nestingOutline, nestingTolerance: nestingTolerance + DxfGeometry.tolerance,
       width: finalBox.width, height: finalBox.height, area: Math.abs(polygonArea(normalizedOutline)), cache: new Map()
@@ -427,6 +428,13 @@
   }
 
   // ---------- Nesting ----------
+  function curveEdgeTolerance(part) {
+    if (part.pairChildren) return Math.max(...part.pairChildren.map(child => curveEdgeTolerance(child.part)));
+    const curved = (part.outlineEntities || part.sourceEntities || []).some(e =>
+      ['ARC','CIRCLE','ELLIPSE','SPLINE'].includes(e.type) ||
+      [e,...(e.vertices || [])].some(record => record.pairs.some(p => p.code === 42 && Number(p.value) !== 0)));
+    return curved ? DxfGeometry.tolerance + .001 : 0;
+  }
   function rotatedShape(part, angle) {
     const key = ((angle % 360) + 360) % 360;
     if (part.cache.has(key)) return part.cache.get(key);
@@ -436,7 +444,7 @@
     const rawOutline = (part.nestingOutline || part.outline).map(rotate);
     const shift = p => ({ x: p.x - box.minX, y: p.y - box.minY });
     const shape = {
-      angle: key, partId: part.id, outline: rawOutline.map(shift),
+      angle: key, partId: part.id, edgeTolerance: curveEdgeTolerance(part), outline: rawOutline.map(shift),
       fullOutline: rawFullOutline.map(shift), tolerance: part.nestingTolerance || 0,
       paths: part.paths.map(path => ({ closed: path.closed, points: path.points.map(rotate).map(shift) })),
       sourceTransform: { angle: key, x: -(part.sourceOrigin?.x || 0) * cos + (part.sourceOrigin?.y || 0) * sin - box.minX, y: -(part.sourceOrigin?.x || 0) * sin - (part.sourceOrigin?.y || 0) * cos - box.minY },
@@ -448,12 +456,12 @@
   function freeRotationCandidates(part) {
     if (part.freeRotations) return part.freeRotations;
     const normalize = angle => ((angle % 360) + 360) % 360;
-    const angles = [0];
+    const angles = [0, 90, 180, 270];
     for (let i = 0; i < part.outline.length; i++) {
       const a = part.outline[i], b = part.outline[(i + 1) % part.outline.length];
-      if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-7) continue;
+      if (Math.hypot(b.x - a.x, b.y - a.y) < Math.hypot(part.width, part.height) * .035) continue;
       const edgeAngle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-      angles.push(normalize(-edgeAngle), normalize(90 - edgeAngle));
+      angles.push(normalize(-edgeAngle), normalize(90 - edgeAngle), normalize(180 - edgeAngle), normalize(270 - edgeAngle));
     }
     const uniqueAngles = [...new Map(angles.map(angle => {
       const rounded = Math.round(normalize(angle) * 10) / 10;
@@ -553,7 +561,7 @@
       const a = placed.shape.outline.map(p => ({ x: p.x, y: p.y }));
       const b = shape.outline.map(p => ({ x: p.x, y: p.y }));
       const raw = minkowskiContactPolygon(a, b);
-      result = offsetPolygons(raw, safeGap);
+      result = offsetPolygons(raw, safeGap + .3); // Covers offset-arc tessellation and integer rounding.
     } catch (_) { result = []; }
     // Impede que arquivos muito grandes mantenham combinações antigas indefinidamente.
     if (state.nfpCache.size > 30000) state.nfpCache.clear();
@@ -566,38 +574,50 @@
     const usedHeight = Math.max(sheet.usedMaxY, y + shape.height) - config.edgeGap;
     const envelope = usedWidth * usedHeight;
     const balance = (usedWidth / sheet.width + usedHeight / sheet.height) * sheet.width * sheet.height * .025;
-    return envelope + balance + (x + y) * 1e-4;
+    const compactness = (x + y) * 1e-4;
+    if (config.placementMode === 1) return usedWidth * sheet.height + usedHeight * sheet.width * .05 + compactness;
+    if (config.placementMode === 2) return usedHeight * sheet.width + usedWidth * sheet.height * .05 + compactness;
+    return envelope + balance + compactness;
   }
 
   function candidatePositions(sheet, instance, shape, config) {
-    const candidates = new Map();
+    const candidates = new Map(), edge = config.edgeGap + (shape.edgeTolerance || 0);
     const add = (x, y, source = 0) => {
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      if (x < config.edgeGap - 1e-6 || y < config.edgeGap - 1e-6 || x + shape.width > sheet.width - config.edgeGap + 1e-6 || y + shape.height > sheet.height - config.edgeGap + 1e-6) return;
+      if (x < edge - 1e-6 || y < edge - 1e-6 || x + shape.width > sheet.width - edge + 1e-6 || y + shape.height > sheet.height - edge + 1e-6) return;
       const key = `${Math.round(x * 100)}/${Math.round(y * 100)}`;
       if (!candidates.has(key)) candidates.set(key, { x, y, source });
     };
 
     // Bordas e cantos da chapa continuam sendo candidatos essenciais.
-    const left = config.edgeGap, right = sheet.width - config.edgeGap - shape.width;
-    const bottom = config.edgeGap, top = sheet.height - config.edgeGap - shape.height;
+    const left = edge, right = sheet.width - edge - shape.width;
+    const bottom = edge, top = sheet.height - edge - shape.height;
     add(left, bottom); add(right, bottom); add(left, top); add(right, top);
 
-    const contactSet = new Set(sheet.placements.slice(-6));
+    // Feasible translation space = sheet inset minus ALL no-fit polygons.
+    // Boolean intersections create contacts with two neighbours or a sheet edge,
+    // including cavities that individual NFP vertices cannot represent.
+    const obstacles = [], scale = 1000;
+    const anchor = shape.outline[0];
     for (const placed of sheet.placements) {
-      // Vértices do NFP são posições reais de contato entre contornos,
-      // inclusive para peças inclinadas e côncavas.
-      if (contactSet.has(placed)) {
-        const anchor = shape.outline[0];
-        for (const polygon of contactPolygons(placed, instance, shape, config)) {
-          for (const point of polygon) add(placed.x + point.x - anchor.x, placed.y + point.y - anchor.y, 1);
-        }
+      for (const polygon of contactPolygons(placed, instance, shape, config)) {
+        const translated = polygon.map(p => ({ X: Math.round((placed.x + p.x - anchor.x) * scale), Y: Math.round((placed.y + p.y - anchor.y) * scale) }));
+        if (!ClipperLib.Clipper.Orientation(translated)) translated.reverse();
+        obstacles.push(translated);
+        for (const p of translated) add(p.X / scale, p.Y / scale, 1);
       }
-      // Fallback barato para geometrias degeneradas que não geram NFP.
-      add(placed.box.maxX + config.partGap, placed.box.minY);
-      add(placed.box.minX - shape.width - config.partGap, placed.box.minY);
-      add(placed.box.minX, placed.box.maxY + config.partGap);
-      add(placed.box.minX, placed.box.minY - shape.height - config.partGap);
+      add(placed.box.maxX + config.partGap + .01, placed.box.minY);
+      add(placed.box.minX - shape.width - config.partGap - .01, placed.box.minY);
+      add(placed.box.minX, placed.box.maxY + config.partGap + .01);
+      add(placed.box.minX, placed.box.minY - shape.height - config.partGap - .01);
+    }
+    if (obstacles.length && right > left && top > bottom) {
+      const clipper = new ClipperLib.Clipper(), free = new ClipperLib.Paths();
+      const frame = [{ X:Math.ceil(left*scale),Y:Math.ceil(bottom*scale) },{ X:Math.floor(right*scale),Y:Math.ceil(bottom*scale) },{ X:Math.floor(right*scale),Y:Math.floor(top*scale) },{ X:Math.ceil(left*scale),Y:Math.floor(top*scale) }];
+      clipper.AddPath(frame,ClipperLib.PolyType.ptSubject,true);
+      clipper.AddPaths(obstacles,ClipperLib.PolyType.ptClip,true);
+      clipper.Execute(ClipperLib.ClipType.ctDifference,free,ClipperLib.PolyFillType.pftNonZero,ClipperLib.PolyFillType.pftNonZero);
+      for (const polygon of free) for (const point of polygon) add(point.X/scale,point.Y/scale,2);
     }
     const ranked = [...candidates.values()];
     ranked.sort((a, b) => placementScore(sheet, shape, a.x, a.y, config) - placementScore(sheet, shape, b.x, b.y, config) || b.source - a.source);
@@ -605,7 +625,8 @@
   }
 
   function canPlace(sheet, shape, x, y, config) {
-    if (x < config.edgeGap - 1e-7 || y < config.edgeGap - 1e-7 || x + shape.width > sheet.width - config.edgeGap + 1e-7 || y + shape.height > sheet.height - config.edgeGap + 1e-7) return null;
+    const edge = config.edgeGap + (shape.edgeTolerance || 0);
+    if (x < edge - 1e-7 || y < edge - 1e-7 || x + shape.width > sheet.width - edge + 1e-7 || y + shape.height > sheet.height - edge + 1e-7) return null;
     const box = { minX: x, minY: y, maxX: x + shape.width, maxY: y + shape.height };
     const outline = transformedOutline(shape, x, y);
     const maximumGap = config.partGap + (shape.tolerance || 0) + sheet.maxTolerance;
@@ -616,11 +637,12 @@
     return outline;
   }
 
-  async function placeOnSheet(sheet, instance, rotations, config, random, varied) {
+  async function placementOptions(sheet, instance, rotations, config, random, varied) {
     let rotationOrder = [...(config.freeRotation ? freeRotationCandidates(instance.part) : rotations)];
-    if (varied) rotationOrder.sort(() => random() - .5);
-    if (config.freeRotation && rotationOrder.length > 4) rotationOrder = rotationOrder.slice(0, 4);
-    let best = null;
+    if(instance.part.pairChildren && !config.freeRotation)rotationOrder=rotationOrder.filter(angle=>instance.part.pairChildren.every(child=>rotations.some(allowed=>Math.abs((((child.angle+angle-allowed)%360)+360)%360)<1e-6)));
+    if (varied) for(let i=rotationOrder.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[rotationOrder[i],rotationOrder[j]]=[rotationOrder[j],rotationOrder[i]];}
+
+    const options = [];
     let lastYield = performance.now();
     for (const angle of rotationOrder) {
       const shape = rotatedShape(instance.part, angle);
@@ -631,29 +653,54 @@
         const outline = canPlace(sheet, shape, pos.x, pos.y, config);
         if (!outline) continue;
         const score = placementScore(sheet, shape, pos.x, pos.y, config) + (varied ? random() * .001 : 0);
-        if (!best || score < best.score) best = { x: pos.x, y: pos.y, shape, outline, score };
+        options.push({ x: pos.x, y: pos.y, shape, outline, score });
         // Compara mais de um contato válido; isso evita o viés que criava a
         // terceira chapa, sem testar centenas de posições equivalentes.
-        if (++validForRotation >= 8) break;
+        if (++validForRotation >= 3) break;
       }
     }
-    if (!best) return false;
+    return options.sort((a,b)=>a.score-b.score);
+  }
+  function commitPlacement(sheet, instance, best) {
     const box = { minX: best.x, minY: best.y, maxX: best.x + best.shape.width, maxY: best.y + best.shape.height };
-    const placement = { ...best, box, part: instance.part, instanceNumber: instance.instanceNumber };
+    const placement = { ...best, box, part: instance.part, instanceNumber: instance.instanceNumber, childInstances: instance.childInstances || best.childInstances };
     sheet.placements.push(placement); indexPlacement(sheet, placement);
     sheet.usedMaxX = Math.max(sheet.usedMaxX, box.maxX); sheet.usedMaxY = Math.max(sheet.usedMaxY, box.maxY);
-    return true;
+  }
+  async function placeOnSheet(sheet, instance, rotations, config, random, varied) {
+    const best=(await placementOptions(sheet,instance,rotations,config,random,varied))[0];
+    if(!best)return false;
+    commitPlacement(sheet,instance,best);return true;
+  }
+  async function placePairOnSheet(sheet, first, second, config, random) {
+    const options=await placementOptions(sheet,first,config.rotations,config,random,false);
+    // Preserve orientation diversity in the beam: the first trapezoid's best
+    // isolated orientation may be the wrong one for its complementary partner.
+    const perAngle=new Map();for(const option of options)if(!perAngle.has(option.shape.angle))perAngle.set(option.shape.angle,option);
+    const beam=[...new Set([...perAngle.values()].slice(0,12).concat(options.slice(0,4)))];
+    let best=null,bestScore=Infinity;
+    for(const option of beam){
+      const candidate=sheetWithout(sheet,new Set(),config);commitPlacement(candidate,first,option);
+      if(!await placeOnSheet(candidate,second,config.rotations,config,random,false))continue;
+      const last=candidate.placements.at(-1),score=placementScore(candidate,last.shape,last.x,last.y,config);
+      if(score<bestScore){best=candidate;bestScore=score;}
+    }
+    if(!best)return false;
+    Object.assign(sheet,best);return true;
   }
 
   async function runTrial(instances, config, trial, onPiece) {
+    config = { ...config, placementMode: trial % 3 };
     const random = seededRandom(9137 + trial * 7919);
     const ordered = [...instances];
     if (trial === 0) ordered.sort((a, b) => b.part.area - a.part.area);
     else if (trial === 1) ordered.sort((a, b) => Math.max(b.part.width, b.part.height) - Math.max(a.part.width, a.part.height));
     else if (trial === 2) ordered.sort((a, b) => b.part.height - a.part.height || b.part.width - a.part.width);
     else if (trial === 3) ordered.sort((a, b) => b.part.width - a.part.width || b.part.area - a.part.area);
+    else if (trial === 4) ordered.sort((a, b) => a.part.area - b.part.area);
+    else if (trial === 5) ordered.sort((a, b) => a.instanceNumber - b.instanceNumber || b.part.area - a.part.area);
     else {
-      const randomized = ordered.map(item => ({ item, score: item.part.area * (.65 + random() * .7) }));
+      const randomized = ordered.map(item => ({ item, score: trial % 4 === 0 ? random() : item.part.area * (.3 + random() * 1.4) }));
       randomized.sort((a, b) => b.score - a.score);
       ordered.splice(0, ordered.length, ...randomized.map(entry => entry.item));
     }
@@ -669,16 +716,20 @@
       return available;
     };
     for (let instanceIndex = 0; instanceIndex < ordered.length; instanceIndex++) {
-      const instance = ordered[instanceIndex];
+      const instance = ordered[instanceIndex], next = ordered[instanceIndex+1];
+      const tryPlace = async sheet => {
+        if(next?.part.id===instance.part.id && trial%3!==1 && await placePairOnSheet(sheet,instance,next,config,random)){instanceIndex++;return true;}
+        return placeOnSheet(sheet,instance,config.rotations,config,random,trial>3);
+      };
       let placed = false;
       for (const sheet of sheets) {
-        if (await placeOnSheet(sheet, instance, config.rotations, config, random, trial > 3)) { placed = true; break; }
+        if (await tryPlace(sheet)) { placed = true; break; }
       }
       if (!placed) {
         for (const type of orderedAvailableStock()) {
           const stockIndex = (stockUsage.get(type.id) || 0) + 1;
           const candidateSheet = createSheet(config, type, stockIndex);
-          if (!await placeOnSheet(candidateSheet, instance, config.rotations, config, random, trial > 3)) continue;
+          if (!await tryPlace(candidateSheet)) continue;
           sheets.push(candidateSheet);
           stockUsage.set(type.id, stockIndex);
           placed = true;
@@ -701,7 +752,101 @@
     return { sheets, totalSheetArea, occupied };
   }
 
+  function sheetCompactness(sheet, config) {
+    const width = sheet.usedMaxX - config.edgeGap, height = sheet.usedMaxY - config.edgeGap;
+    return width * height + (width + height) * .01 + sheet.placements.reduce((sum,p) => sum + p.x + p.y,0) * 1e-5;
+  }
+  function sheetWithout(sheet, removed, config) {
+    const rebuilt = createSheet(config,{id:sheet.sheetTypeId,width:sheet.width,height:sheet.height},sheet.stockIndex);
+    for (const p of sheet.placements) if (!removed.has(p)) {
+      rebuilt.placements.push(p);indexPlacement(rebuilt,p);
+      rebuilt.usedMaxX=Math.max(rebuilt.usedMaxX,p.box.maxX);rebuilt.usedMaxY=Math.max(rebuilt.usedMaxY,p.box.maxY);
+    }
+    return rebuilt;
+  }
+  async function compactResult(result, config) {
+    let relocations = 0;
+    for (let sheetIndex=0;sheetIndex<result.sheets.length;sheetIndex++) {
+      let sheet=result.sheets[sheetIndex];
+      for (let pass=0;pass<3;pass++) {
+        let improved=false;
+        const ordered=[...sheet.placements].sort((a,b)=>(b.box.maxX+b.box.maxY)-(a.box.maxX+a.box.maxY));
+        for (const old of ordered) {
+          if(!sheet.placements.includes(old))continue;
+          const candidate=sheetWithout(sheet,new Set([old]),config);
+          if(await placeOnSheet(candidate,{part:old.part,instanceNumber:old.instanceNumber},config.rotations,{...config,placementMode:0},seededRandom(1),false) && sheetCompactness(candidate,config)<sheetCompactness(sheet,config)-.01) {
+            sheet=candidate;improved=true;relocations++;
+          }
+        }
+        // Reinsert a neighbourhood together: one immovable neighbour must not
+        // prevent a trapezoid and its complementary rotation from moving as a pair.
+        const pairs=[];
+        for(let i=0;i<sheet.placements.length;i++)for(let j=i+1;j<sheet.placements.length;j++){
+          const a=sheet.placements[i],b=sheet.placements[j];
+          const distance=Math.hypot(a.x+a.shape.width/2-b.x-b.shape.width/2,a.y+a.shape.height/2-b.y-b.shape.height/2);
+          pairs.push({a,b,distance});
+        }
+        pairs.sort((a,b)=>a.distance-b.distance);
+        for(const {a,b} of pairs.slice(0,Math.min(24,sheet.placements.length*2))) {
+          if(!sheet.placements.includes(a)||!sheet.placements.includes(b))continue;
+          let best=sheet;
+          for(const first of [a,b])for(const mode of [0,1,2]){
+            const second=first===a?b:a,candidate=sheetWithout(sheet,new Set([a,b]),config),localConfig={...config,placementMode:mode};
+            if(!await placeOnSheet(candidate,{part:first.part,instanceNumber:first.instanceNumber},config.rotations,localConfig,seededRandom(1),false))continue;
+            if(!await placeOnSheet(candidate,{part:second.part,instanceNumber:second.instanceNumber},config.rotations,localConfig,seededRandom(1),false))continue;
+            if(sheetCompactness(candidate,config)<sheetCompactness(best,config)-.01)best=candidate;
+          }
+          if(best!==sheet){sheet=best;improved=true;relocations+=2;}
+          await yieldToBrowser();
+        }
+        if(!improved)break;
+      }
+      result.sheets[sheetIndex]=sheet;
+    }
+    result.occupied=result.sheets.reduce((sum,s)=>sum+(s.usedMaxX-config.edgeGap)*(s.usedMaxY-config.edgeGap),0);
+    result.relocations=relocations;
+    return result;
+  }
+
+  async function pairedInstances(instances, config) {
+    const groups=new Map();for(const instance of instances){if(!groups.has(instance.part.id))groups.set(instance.part.id,[]);groups.get(instance.part.id).push(instance);}
+    const packed=[];
+    for(const group of groups.values()){
+      const part=group[0].part;
+      if(group.length<2){packed.push(...group);continue;}
+      const sheet=createSheet(config,{id:'pair-probe',width:Math.max(...config.sheetTypes.map(s=>s.width)),height:Math.max(...config.sheetTypes.map(s=>s.height))},0);
+      if(!await placePairOnSheet(sheet,group[0],group[1],{...config,placementMode:0},seededRandom(1))){packed.push(...group);continue;}
+      const all=sheet.placements.flatMap(p=>p.shape.fullOutline.map(v=>({x:v.x+p.x,y:v.y+p.y}))),box=bounds(all);
+      const children=sheet.placements.map(p=>({part:p.part,angle:p.shape.angle,x:p.x-box.minX,y:p.y-box.minY,shape:p.shape}));
+      const outline=convexHull(all.map(p=>({x:p.x-box.minX,y:p.y-box.minY})));
+      const pairTolerance=Math.max(.08,Math.min(2,Math.hypot(box.width,box.height)*.0012));
+      const compound={id:`pair-${part.id}`,name:part.name,outline,nestingOutline:simplifyClosedPolygon(outline,pairTolerance),paths:[],width:box.width,height:box.height,area:part.area*2,cache:new Map(),nestingTolerance:pairTolerance+Math.max(...sheet.placements.map(p=>p.shape.tolerance)),sourceOrigin:{x:0,y:0},pairChildren:children};
+      for(let i=0;i+1<group.length;i+=2)packed.push({part:compound,instanceNumber:i/2+1,childInstances:[group[i].instanceNumber,group[i+1].instanceNumber]});
+      if(group.length%2)packed.push(group.at(-1));
+    }
+    return packed;
+  }
+  function unpackPairs(result, config) {
+    result.sheets=result.sheets.map(sheet=>{
+      const flat=sheetWithout(sheet,new Set(sheet.placements),config);
+      for(const placed of sheet.placements){
+        if(!placed.part.pairChildren){commitPlacement(flat,{part:placed.part,instanceNumber:placed.instanceNumber},placed);continue;}
+        const rad=degToRad(placed.shape.angle),c=Math.cos(rad),s=Math.sin(rad),shift=placed.shape.sourceTransform;
+        placed.part.pairChildren.forEach((child,index)=>{
+          const points=child.shape.fullOutline.map(p=>({x:(p.x+child.x)*c-(p.y+child.y)*s,y:(p.x+child.x)*s+(p.y+child.y)*c}));
+          const box=bounds(points),shape=rotatedShape(child.part,child.angle+placed.shape.angle),x=placed.x+shift.x+box.minX,y=placed.y+shift.y+box.minY;
+          commitPlacement(flat,{part:child.part,instanceNumber:placed.childInstances[index]},{x,y,shape,outline:transformedOutline(shape,x,y),score:placed.score});
+        });
+      }
+      return flat;
+    });
+    result.occupied=result.sheets.reduce((sum,s)=>sum+(s.usedMaxX-config.edgeGap)*(s.usedMaxY-config.edgeGap),0);
+    return result;
+  }
+
   async function optimize(parts, config, onProgress = () => {}) {
+    // Temporary pairs depend on the current rotation and sheet settings.
+    state.nfpCache.clear();
     const sheetTypes = Array.isArray(config.sheetTypes) && config.sheetTypes.length
       ? config.sheetTypes.map((type, index) => ({ id: String(type.id ?? `sheet-${index + 1}`), width: Number(type.width), height: Number(type.height), quantity: Math.max(1, Math.trunc(Number(type.quantity) || 1)) }))
       : [{ id: 'sheet-1', width: Number(config.sheetWidth), height: Number(config.sheetHeight), quantity: Math.max(1, Math.trunc(Number(config.maxSheets) || 1)) }];
@@ -710,19 +855,20 @@
     for (const part of parts) for (let n = 1; n <= part.quantity; n++) instances.push({ part, instanceNumber: n });
     if (!instances.length) throw new Error(t('addPiece'));
     const totalArea = instances.reduce((sum, item) => sum + item.part.area, 0);
-    const onlySheetType = config.sheetTypes.length === 1 ? config.sheetTypes[0] : null;
-    const usableSheetArea = onlySheetType ? (onlySheetType.width - 2 * config.edgeGap) * (onlySheetType.height - 2 * config.edgeGap) : 0;
-    const theoreticalMinimum = onlySheetType ? Math.max(1, Math.ceil(totalArea / usableSheetArea)) : 0;
     let best = null, lastError = null, stagnantTrials = 0, iterationsRun = 0;
-    const minimumTrials = Math.min(config.iterations, Math.max(4, Math.ceil(Math.sqrt(instances.length))));
+    const minimumTrials = Math.min(config.iterations, Math.max(12, Math.ceil(Math.sqrt(instances.length))));
     const patience = Math.max(4, Math.ceil(minimumTrials * .75));
+    let compounds=null;
     for (let trial = 0; trial < config.iterations; trial++) {
-      onProgress(trial / config.iterations, t('trial', { current: trial + 1, total: config.iterations }));
+      onProgress(.9 * trial / config.iterations, t('trial', { current: trial + 1, total: config.iterations }));
       let result;
       try {
-        result = await runTrial(instances, config, trial, (piece, total, name) => {
-          onProgress((trial + piece / total) / config.iterations, t('trialPiece', { current: trial + 1, attempts: config.iterations, piece, total, name }));
+        const usePairs=trial>=6 && trial%4>=2 && instances.length>=4;
+        if(usePairs&&!compounds)compounds=await pairedInstances(instances,config);
+        result = await runTrial(usePairs?compounds:instances, config, trial, (piece, total, name) => {
+          onProgress(.9 * (trial + piece / total) / config.iterations, t('trialPiece', { current: trial + 1, attempts: config.iterations, piece, total, name }));
         });
+        if(usePairs)result=unpackPairs(result,config);
       } catch (error) {
         lastError = error; iterationsRun++; stagnantTrials++;
         continue;
@@ -733,13 +879,11 @@
         (result.sheets.length === best.sheets.length && result.occupied < best.occupied - 1e-6)));
       if (isBetter) { best = result; stagnantTrials = 0; }
       else stagnantTrials++;
-      // Se a quantidade de chapas atingiu o limite inferior por área, nenhuma
-      // outra tentativa pode reduzi-la. Faz apenas três variações para refinar
-      // o arranjo e encerra a busca.
-      if (onlySheetType && best.sheets.length === theoreticalMinimum && iterationsRun >= Math.min(3, config.iterations)) break;
       if (iterationsRun >= minimumTrials && stagnantTrials >= patience) break;
     }
     if (!best) throw lastError || new Error(t('sheetStockExhausted'));
+    onProgress(.95, t('finalizing'));
+    best = await compactResult(best, config);
     onProgress(1, t('finalizing'));
     const finalResult = {
       ...best, config, totalArea, partCount: instances.length, createdAt: new Date(),
@@ -759,6 +903,13 @@
         placement,
         outline: transformedOutline({ outline: placement.shape.fullOutline || placement.shape.outline }, placement.x, placement.y)
       }));
+      for (const {placement} of exact) {
+        const edge = result.config.edgeGap + (placement.shape.edgeTolerance || 0);
+        if (placement.x < edge - 1e-6 || placement.y < edge - 1e-6 ||
+            placement.x + placement.shape.width > sheet.width - edge + 1e-6 ||
+            placement.y + placement.shape.height > sheet.height - edge + 1e-6)
+          return {valid:false, first:placement.part.name, second:sheet.sheetTypeId};
+      }
       for (let i = 0; i < exact.length; i++) for (let j = i + 1; j < exact.length; j++) {
         if (!boxesOverlap(exact[i].placement.box, exact[j].placement.box, result.config.partGap)) continue;
         if (polygonsTooClose(exact[i].outline, exact[j].outline, result.config.partGap, exact[i].placement.box, exact[j].placement.box)) {

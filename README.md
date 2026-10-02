@@ -39,15 +39,17 @@ Durante o cálculo, uma barra mostra o avanço por tentativa e por peça. O proc
 
 - O nesting utiliza uma cópia simplificada e conservadora do contorno para procurar posições rapidamente; o erro conhecido dessa simplificação é acrescentado à margem de colisão.
 - A geometria DXF original nunca é simplificada no arquivo exportado.
-- NFPs calculados são reutilizados entre tentativas, e somente a fronteira ativa da chapa gera novos contatos.
+- NFPs calculados são reutilizados entre tentativas. A busca considera todas as peças posicionadas e as interseções dos espaços livres com os contornos e as bordas da chapa.
 - Um índice espacial limita as verificações às peças próximas da posição candidata.
 - Caixas de segmentos eliminam comparações geométricas desnecessárias.
 - Vários contatos válidos por rotação são comparados por área ocupada, em vez de aceitar o primeiro encaixe.
 - Ordenações repetidas foram substituídas por tentativas realmente distintas.
-- A busca encerra quando novas tentativas deixam de melhorar a solução ou quando atinge o menor número de chapas matematicamente possível pela área.
+- A busca continua melhorando a compactação mesmo quando já cabe em uma chapa. O encerramento por estagnação ocorre somente após um mínimo de tentativas, limitado pela quantidade solicitada.
 - Antes de liberar o resultado, as posições são validadas contra os contornos amostrados completos, sem a simplificação de busca, e a folga configurada. A amostragem de curvas tem alvo de desvio de 0,01 mm, incluído na margem usada pela busca; não substitui a geometria nativa da saída.
 
-No modo **Livre**, os ângulos candidatos são calculados a partir das arestas do contorno de cada peça. Rotações geometricamente equivalentes são eliminadas para manter a otimização rápida.
+Peças repetidas também são avaliadas em pares complementares. Algumas tentativas posicionam esses pares como grupos temporários; ao final, cada peça recupera seu posicionamento individual e suas entidades DXF originais. Uma etapa de compactação tenta reposicionar peças e pares, aceitando somente melhorias.
+
+No modo **Livre**, os ângulos candidatos incluem os eixos principais e alinhamentos das arestas significativas do contorno, inclusive orientações complementares. Não se trata de uma busca exaustiva de todos os ângulos contínuos. Rotações geometricamente equivalentes são eliminadas para manter a otimização rápida.
 
 ## Limitações desta versão
 
@@ -83,8 +85,11 @@ Abra `tests/browser-tests.html` por um servidor HTTP local para a suíte do apli
 ```powershell
 python -m pip install -r tests/requirements.txt
 python tests/test_curve_export.py
+python tests/test_nesting_quality.py
 ```
 
 A regressão reabre o DXF no ezdxf e compara as entidades com transformações calculadas independentemente, em 0°, 37°, 90° e 270°, com quatro chapas e coordenadas de origem deslocadas. Verifica bulges positivos/negativos, orientação OCS negativa, nós/pesos/tangentes/pontos de ajuste de splines, raio/ângulos de arcos, eixos de elipses, preservação após unir caminhos, integridade dos dados de origem e o fluxo completo do otimizador. Também corrompe intencionalmente a cópia poligonal de visualização para comprovar que ela não é usada na exportação.
 
 Referência de códigos DXF: [Autodesk — SPLINE](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm).
+
+A regressão de qualidade usa trapézios sintéticos, confere quantidades, área da envoltória, bordas e distância entre as curvas exportadas com ezdxf e Shapely. Arquivos particulares podem ser fornecidos com `--files A.dxf B.dxf C.dxf`; as quantidades desse cenário são 2, 1 e 9, chapa de 1850 × 2750 mm, folgas de 14/5 mm e rotação livre. Os arquivos de entrada não são alterados nem adicionados ao repositório.
