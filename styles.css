@@ -49,8 +49,8 @@ button, input, select { font: inherit; }
 .drop-zone:hover, .drop-zone.drag { border-color: var(--orange); background: #fff7f2; }
 .upload-icon { width: 26px; height: 26px; display: grid; place-items: center; color: var(--orange); background: #ffede3; border-radius: 50%; font-size: 20px; line-height: 1; }
 .drop-zone strong { font-size: 12px; margin-top: 6px; }.drop-zone small { color: var(--muted); font-size: 10px; margin-top: 2px; }
-.file-list { margin-top: 10px; display: grid; gap: 7px; max-height: 184px; overflow: auto; }
-.file-item { display: grid; grid-template-columns: 30px minmax(0,1fr) 55px 24px; align-items: center; gap: 7px; background: #f5f8f9; padding: 7px; border-radius: 7px; border: 1px solid #e8edef; }
+.file-list { margin-top: 10px; display: grid; gap: 7px; max-height: 236px; overflow: auto; }
+.file-item { display: grid; grid-template-columns: 52px minmax(0,1fr) 38px 20px; align-items: center; gap: 7px; background: #f5f8f9; padding: 7px; border-radius: 7px; border: 1px solid #e8edef; }
 .file-badge { height: 27px; background: var(--teal-soft); color: var(--teal); border-radius: 5px; display: grid; place-items: center; font-size: 9px; font-weight: 800; }
 .file-meta { min-width: 0; }.file-meta strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }.file-meta small { color: var(--muted); font-size: 9px; }
 .qty-control { display: flex; align-items: center; gap: 3px; }.qty-control input { width: 38px; height: 25px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 4px; text-align: center; font-size: 11px; }
@@ -100,3 +100,5 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgb
 footer { height: 34px; padding: 0 30px; background: #fff; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; color: #89959b; font-size: 9px; }
 @keyframes dots { 0%,100%{opacity:.2}50%{opacity:1} }
 @media(max-width:1050px){ .app-shell{grid-template-columns:330px 1fr}.sidebar{padding:14px}.workspace{padding:0 15px}.metrics{gap:6px}.metrics > div{padding:6px}.privacy{display:none}.top-actions{gap:8px} }
+
+.file-thumbnail { display: block; width: 52px; height: 52px; border-radius: 5px; background: var(--teal-soft); color: var(--teal); }

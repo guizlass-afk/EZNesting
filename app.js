@@ -1101,11 +1101,20 @@
     else setMessage(t('imported', { files: files.length, pieces: detectedPieces }), 'success');
     ui.fileInput.value = '';
   }
+  function partThumbnail(part) {
+    // Preview the complete paths (including holes), never the nesting proxy.
+    const box = bounds(part.paths.flatMap(path => path.points));
+    const size = Math.max(box.width, box.height, 1), pad = size * .09;
+    const pathData = paths => paths.map(path => 'M' + path.points.map(p => `${p.x},${-p.y}`).join('L') + (path.closed ? 'Z' : '')).join(' ');
+    const closed = pathData(part.paths.filter(path => path.closed && path.points.length));
+    const open = pathData(part.paths.filter(path => !path.closed && path.points.length));
+    return `<svg class="file-thumbnail" viewBox="${box.minX-pad} ${-box.maxY-pad} ${box.width+2*pad} ${box.height+2*pad}" aria-hidden="true" focusable="false"><path d="${closed}" fill="currentColor" fill-opacity=".25" fill-rule="evenodd" stroke="currentColor" stroke-width="1.2" vector-effect="non-scaling-stroke"/><path d="${open}" fill="none" stroke="currentColor" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>`;
+  }
   function renderFiles() {
     ui.fileList.innerHTML = '';
     state.parts.forEach(part => {
       const row = document.createElement('div'); row.className = 'file-item';
-      row.innerHTML = `<span class="file-badge">DXF</span><div class="file-meta"><strong title="${escapeHtml(part.filename)}">${escapeHtml(part.name)}</strong><small>${fmt(part.width)} × ${fmt(part.height)} mm</small></div><label class="qty-control" title="${escapeHtml(t('quantity'))}"><input type="number" min="1" max="999" value="${part.quantity}" aria-label="${escapeHtml(t('quantity'))}: ${escapeHtml(part.name)}"></label><button class="remove-file" title="${escapeHtml(t('remove'))}" aria-label="${escapeHtml(t('remove'))}: ${escapeHtml(part.name)}">×</button>`;
+      row.innerHTML = `${partThumbnail(part)}<div class="file-meta"><strong title="${escapeHtml(part.filename)}">${escapeHtml(part.name)}</strong><small>${fmt(part.width)} × ${fmt(part.height)} mm</small></div><label class="qty-control" title="${escapeHtml(t('quantity'))}"><input type="number" min="1" max="999" value="${part.quantity}" aria-label="${escapeHtml(t('quantity'))}: ${escapeHtml(part.name)}"></label><button class="remove-file" title="${escapeHtml(t('remove'))}" aria-label="${escapeHtml(t('remove'))}: ${escapeHtml(part.name)}">×</button>`;
       row.querySelector('input').addEventListener('change', e => { part.quantity = Math.max(1, Math.min(999, Math.trunc(+e.target.value || 1))); e.target.value = part.quantity; resetResult(); });
       row.querySelector('button').addEventListener('click', () => { state.parts = state.parts.filter(p => p.id !== part.id); renderFiles(); resetResult(); });
       ui.fileList.appendChild(row);
