@@ -110,6 +110,18 @@ LWPOLYLINE
 20
 180`;
         const multiple = rectangle.replace('\n0\nENDSEC\n0\nEOF', `\n${secondPiece}\n0\nENDSEC\n0\nEOF`);
+        // A tiny CAD endpoint gap must not turn an internal letter into the part envelope.
+        const gapLine = (a,b) => `0\nLINE\n10\n${a[0]}\n20\n${a[1]}\n11\n${b[0]}\n21\n${b[1]}\n`;
+        const marked = gap => '0\nSECTION\n2\nENTITIES\n' +
+          gapLine([0,0],[600,0])+gapLine([600,0],[600,200])+gapLine([600,200],[0,200])+
+          gapLine([0,200+gap],[0,gap])+
+          '0\nLWPOLYLINE\n90\n4\n70\n1\n10\n280\n20\n80\n10\n300\n20\n80\n10\n300\n20\n120\n10\n280\n20\n120\n0\nENDSEC\n0\nEOF';
+        const repaired = core.parseDxfParts(marked(.011), 'marked-gap.dxf');
+        if (repaired.length !== 1 || repaired[0].width !== 600 || repaired[0].height < 200 || repaired[0].sourceEntities.length !== 5)
+          throw new Error('Tiny endpoint gaps or internal markings corrupt the part envelope');
+        let rejected = false;
+        try { core.parseDxfParts(marked(1), 'unresolved-gap.dxf'); } catch { rejected = true; }
+        if (!rejected) throw new Error('An unresolved outer contour was assigned to its internal marking');
         const separated = core.parseDxfParts(multiple, 'duas_pecas.dxf');
         if (separated.length !== 2) throw new Error(`Separação sintética incorreta: ${separated.length} peça(s)`);
         const largerPiece = separated.find(part => Math.round(part.width) === 500);

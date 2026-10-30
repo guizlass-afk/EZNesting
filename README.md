@@ -93,3 +93,12 @@ A regressão reabre o DXF no ezdxf e compara as entidades com transformações c
 Referência de códigos DXF: [Autodesk — SPLINE](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm).
 
 A regressão de qualidade usa trapézios sintéticos, confere quantidades, área da envoltória, bordas e distância entre as curvas exportadas com ezdxf e Shapely. Arquivos particulares podem ser fornecidos com `--files A.dxf B.dxf C.dxf`; as quantidades desse cenário são 2, 1 e 9, chapa de 1850 × 2750 mm, folgas de 14/5 mm e rotação livre. Os arquivos de entrada não são alterados nem adicionados ao repositório.
+
+
+## Segurança dos contornos importados
+
+A união de segmentos aceita pequenas diferenças entre extremidades de até 0,02 unidade do desenho (0,02 mm em arquivos desenhados em milímetros). A ligação vale apenas para reconhecer a topologia do contorno; as entidades nativas exportadas não são alteradas. Ambos os extremos são mantidos na geometria de colisão.
+
+Marcações internas permanecem associadas ao contorno externo. Caminhos abertos que não cabem em nenhum contorno externo provocam erro de geometria, em vez de serem associados à marcação mais próxima. A importação e a validação final também verificam se a geometria da peça cabe no contorno usado para colisões. Arquivos sem nenhum contorno fechado continuam usando a envoltória convexa conservadora.
+
+A suíte de navegador inclui regressões para microaberturas com marcações internas, rejeição de contornos externos não resolvidos e preservação de arquivos com múltiplas peças legítimas.

@@ -217,29 +217,32 @@
   function stitchConnectedPaths(paths) {
     const ready = paths.filter(path => path.closed || path.points.length < 2).map(path => ({ ...path, points: cleanPoints(path.points) }));
     const pending = paths.filter(path => !path.closed && path.points.length >= 2).map(path => ({ ...path, points: cleanPoints(path.points) }));
-    const all = paths.flatMap(path => path.points);
-    const drawingBounds = bounds(all);
-    const tolerance = Math.max(1e-5, Math.hypot(drawingBounds.width, drawingBounds.height) * 1e-6);
+    // Bridge only microscopic endpoint gaps in the collision topology.
+    // Native entities remain unchanged for export; never scale this tolerance with drawing size.
+    const tolerance = 0.02;
     const close = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
 
     while (pending.length) {
       const seed = pending.shift();
       const chain = [...seed.points];
       const sourceEntities = [...(seed.sourceEntities || [])];
-      let changed = true;
-      while (changed && pending.length) {
-        changed = false;
+      while (pending.length && !(chain.length >= 3 && close(chain[0], chain.at(-1)))) {
         const start = chain[0], end = chain.at(-1);
-        for (let i = 0; i < pending.length; i++) {
-          const candidate = pending[i], first = candidate.points[0], last = candidate.points.at(-1);
-          if (close(end, first)) chain.push(...candidate.points.slice(1));
-          else if (close(end, last)) chain.push(...[...candidate.points].reverse().slice(1));
-          else if (close(start, last)) chain.unshift(...candidate.points.slice(0, -1));
-          else if (close(start, first)) chain.unshift(...[...candidate.points].reverse().slice(0, -1));
-          else continue;
-          sourceEntities.push(...(candidate.sourceEntities || []));
-          pending.splice(i, 1); changed = true; break;
-        }
+        let best = null;
+        pending.forEach((candidate, index) => {
+          const first = candidate.points[0], last = candidate.points.at(-1);
+          [[end, first], [end, last], [start, last], [start, first]].forEach(([a, b], mode) => {
+            const distance = Math.hypot(a.x - b.x, a.y - b.y);
+            if (distance <= tolerance && (!best || distance < best.distance)) best = {index, mode, distance};
+          });
+        });
+        if (!best) break;
+        const candidate = pending.splice(best.index, 1)[0];
+        const points = best.mode % 2 ? [...candidate.points].reverse() : candidate.points;
+        // Keep both endpoints of a gap so the envelope includes the original geometry.
+        if (best.mode < 2) chain.push(...points);
+        else chain.unshift(...points);
+        sourceEntities.push(...(candidate.sourceEntities || []));
       }
       const closed = chain.length >= 3 && close(chain[0], chain.at(-1));
       ready.push({ points: cleanPoints(chain), closed, sourceEntities });
@@ -263,10 +266,9 @@
 
     for (const item of closed) {
       let parent = null;
-      const probe = item.path.points[0];
       for (const candidate of closed) {
         if (candidate === item || candidate.area <= item.area + 1e-7) continue;
-        if (pointInPolygon(probe, candidate.path.points) && (!parent || candidate.area < parent.area)) parent = candidate;
+        if (pathInsideOutline(item.path, candidate.path.points) && (!parent || candidate.area < parent.area)) parent = candidate;
       }
       item.parent = parent?.index ?? -1;
     }
@@ -286,19 +288,28 @@
 
     const openPaths = paths.filter(path => !path.closed);
     for (const path of openPaths) {
-      const center = path.points.reduce((sum, p) => ({ x: sum.x + p.x / path.points.length, y: sum.y + p.y / path.points.length }), { x: 0, y: 0 });
-      let root = roots.find(candidate => pointInPolygon(center, candidate.path.points));
-      if (!root) root = roots.reduce((best, candidate) => {
-        const box = bounds(candidate.path.points), distance = Math.hypot(center.x - (box.minX + box.maxX) / 2, center.y - (box.minY + box.maxY) / 2);
-        return !best || distance < best.distance ? { candidate, distance } : best;
-      }, null)?.candidate;
-      if (root) groups.get(root.index).push(path);
+      const root = roots.find(candidate => pathInsideOutline(path, candidate.path.points));
+      // An unresolved outer contour must never be attached to a small internal marking.
+      if (!root) throw new Error(`${filename}: ${t('invalidGeometry')}`);
+      groups.get(root.index).push(path);
     }
 
     return roots.map((root, index) => buildPart(groups.get(root.index), root.path.points, filename, index, roots.length));
   }
 
+  function pathInsideOutline(path, outline) {
+    const inside = p => pointInPolygon(p, outline) || outline.some((a, i) =>
+      pointSegmentDistance(p, a, outline[(i + 1) % outline.length]) <= 1e-6);
+    return path.points.every((p, i) => {
+      if (!inside(p)) return false;
+      if (!path.closed && i === path.points.length - 1) return true;
+      const q = path.points[(i + 1) % path.points.length];
+      return inside({x:(p.x + q.x) / 2, y:(p.y + q.y) / 2});
+    });
+  }
+
   function buildPart(paths, outline, filename, pieceIndex, pieceCount) {
+    if (paths.some(path => !pathInsideOutline(path, outline))) throw new Error(`${filename}: ${t('invalidGeometry')}`);
     const box = bounds(outline);
     const normalizedPaths = paths.map(path => ({ closed: path.closed, points: cleanPoints(path.points.map(p => ({ x: p.x - box.minX, y: p.y - box.minY }))) }));
     const normalizedOutline = cleanPoints(outline.map(p => ({ x: p.x - box.minX, y: p.y - box.minY })));
@@ -904,6 +915,9 @@
         outline: transformedOutline({ outline: placement.shape.fullOutline || placement.shape.outline }, placement.x, placement.y)
       }));
       for (const {placement} of exact) {
+        const fullOutline = placement.shape.fullOutline || placement.shape.outline;
+        if (placement.shape.paths.some(path => !pathInsideOutline(path, fullOutline)))
+          return {valid:false, first:placement.part.name, second:sheet.sheetTypeId};
         const edge = result.config.edgeGap + (placement.shape.edgeTolerance || 0);
         if (placement.x < edge - 1e-6 || placement.y < edge - 1e-6 ||
             placement.x + placement.shape.width > sheet.width - edge + 1e-6 ||
